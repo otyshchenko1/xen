@@ -279,20 +279,38 @@ static int fdt_property_regs(libxl__gc *gc, void *fdt,
 
 static int make_root_properties(libxl__gc *gc,
                                 const libxl_version_info *vers,
-                                void *fdt)
+                                void *fdt,
+                                const libxl_domain_build_info *info)
 {
-    int res;
+    int res, i;
+    size_t sz = 0;
+    char *compat, *p;
+    const char *compats[2 + info->num_compatibles];
+    const char *compat0 = GCSPRINTF("xen,xenvm-%d.%d", vers->xen_version_major, vers->xen_version_minor);
+    const char *compat1 = "xen,xenvm";
 
     res = fdt_property_string(fdt, "model", GCSPRINTF("XENVM-%d.%d",
                                                       vers->xen_version_major,
                                                       vers->xen_version_minor));
     if (res) return res;
 
-    res = fdt_property_compat(gc, fdt, 2,
-                              GCSPRINTF("xen,xenvm-%d.%d",
-                                        vers->xen_version_major,
-                                        vers->xen_version_minor),
-                              "xen,xenvm");
+    compats[0] = compat0;
+    compats[1] = compat1;
+    sz = strlen(compat0) + strlen(compat1) + 2;
+
+    for(i = 0; i < info->num_compatibles; i++)
+    {
+        compats[2 + i] =  info->compatible[i].compat;
+        sz += strlen(info->compatible[i].compat) + 1;
+    }
+
+    p = compat = libxl__zalloc(gc, sz);
+    for (i = 0; i < 2 + info->num_compatibles; i++) {
+        strcpy(p, compats[i]);
+        p += strlen(compats[i]) + 1;
+    }
+
+    res = fdt_property(fdt, "compatible", compat, sz);
     if (res) return res;
 
     res = fdt_property_cell(fdt, "interrupt-parent", PHANDLE_GIC);
@@ -940,7 +958,7 @@ next_resize:
 
         FDT( fdt_begin_node(fdt, "") );
 
-        FDT( make_root_properties(gc, vers, fdt) );
+        FDT( make_root_properties(gc, vers, fdt, info) );
         FDT( make_chosen_node(gc, fdt, !!dom->ramdisk_blob, state, info) );
         FDT( make_cpus_node(gc, fdt, info->max_vcpus, ainfo) );
         FDT( make_psci_node(gc, fdt) );
