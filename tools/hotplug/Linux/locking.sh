@@ -23,9 +23,14 @@ LOCK_BASEDIR=/var/run/xen-hotplug
 
 _setlockfd()
 {
+    local lock_
     local i
-    for ((i = 0; i < ${#_lockdict}; i++))
-    do [ -z "${_lockdict[$i]}" -o "${_lockdict[$i]}" = "$1" ] && break
+    let i=0
+
+    for lock_ in _lockdict ;
+    do
+    [ -z "$lock_" -o "$lock_" = "$1" ] && break
+    (( i++ ))
     done
     _lockdict[$i]="$1"
     let _lockfd=200+i

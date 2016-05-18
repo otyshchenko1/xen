@@ -51,7 +51,7 @@ sigerr() {
   fatal "$0 failed; error detected."
 }
 
-trap sigerr ERR
+#trap sigerr ERR
 
 
 ##
