@@ -443,6 +443,10 @@ libxl_device_coproc = Struct("device_coproc", [
     ("path", string),
     ])
 
+libxl_passthrough_info = Struct("passthrough_info", [
+    ("path",       string),
+    ])
+
 libxl_domain_build_info = Struct("domain_build_info",[
     ("max_vcpus",       integer),
     ("avail_vcpus",     libxl_bitmap),
@@ -500,6 +504,7 @@ libxl_domain_build_info = Struct("domain_build_info",[
     ("device_tree",      string),
     ("coprocs",          Array(libxl_device_coproc, "num_coprocs")),
     ("acpi",             libxl_defbool),
+    ("passthrough_nodes",            Array(libxl_passthrough_info, "num_passthrough_nodes")),
     ("u", KeyedUnion(None, libxl_domain_type, "type",
                 [("hvm", Struct(None, [("firmware",         string),
                                        ("bios",             libxl_bios_type),

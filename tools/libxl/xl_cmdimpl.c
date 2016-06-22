@@ -1328,7 +1328,7 @@ static void parse_config_data(const char *config_source,
     long l, vcpus = 0;
     XLU_Config *config;
     XLU_ConfigList *cpus, *vbds, *nics, *pcis, *cvfbs, *cpuids, *vtpms,
-                   *usbctrls, *usbdevs;
+                   *usbctrls, *usbdevs, *nodes;
     XLU_ConfigList *channels, *ioports, *irqs, *iomem, *viridian, *dtdevs, *coprocs;
     int num_ioports, num_irqs, num_iomem, num_cpus, num_viridian;
     int pci_power_mgmt = 0;
@@ -1860,6 +1860,19 @@ static void parse_config_data(const char *config_source,
             parse_disk_config(&config, buf2, disk);
 
             free(buf2);
+        }
+    }
+
+    if (!xlu_cfg_get_list (config, "passthrough_nodes", &nodes, 0, 0)) {
+        d_config->b_info.num_passthrough_nodes = 0;
+        d_config->b_info.passthrough_nodes = NULL;
+        while ((buf = xlu_cfg_get_listitem (nodes, d_config->b_info.num_passthrough_nodes)) != NULL)
+        {
+            libxl_passthrough_info * node;
+            node = ARRAY_EXTEND_INIT_NODEVID(d_config->b_info.passthrough_nodes,
+                                             d_config->b_info.num_passthrough_nodes,
+                                             libxl_passthrough_info_init);
+            node->path = strdup(buf);
         }
     }
 
