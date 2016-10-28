@@ -74,7 +74,7 @@ m4_include([../m4/extfs.m4])
 m4_include([../m4/fetcher.m4])
 m4_include([../m4/ax_compare_version.m4])
 m4_include([../m4/paths.m4])
-m4_include([../m4/systemd.m4])
+#m4_include([../m4/systemd.m4])
 
 AX_XEN_EXPAND_CONFIG()
 
@@ -440,7 +440,7 @@ AC_SUBST(LIBNL3_CFLAGS)
 
 fi # ! $rump
 
-AX_AVAILABLE_SYSTEMD()
+#AX_AVAILABLE_SYSTEMD()
 
 AS_IF([test "x$systemd" = "xy"], [
     AC_CONFIG_FILES([
