@@ -979,7 +979,8 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
     if ( p2m_valid(orig_pte) && entry->p2m.base != orig_pte.p2m.base )
         p2m_free_entry(p2m, orig_pte, level);
 
-    if ( need_iommu(p2m->domain) && (p2m_valid(orig_pte) || p2m_valid(*entry)) )
+    if ( need_iommu(p2m->domain) && iommu_use_hap_pt(d) &&
+         (p2m_valid(orig_pte) || p2m_valid(*entry)) )
         rc = iommu_iotlb_flush(p2m->domain, gfn_x(sgfn), 1UL << page_order);
     else
         rc = 0;
@@ -997,6 +998,9 @@ int p2m_set_entry(struct p2m_domain *p2m,
                   p2m_type_t t,
                   p2m_access_t a)
 {
+    unsigned long orig_nr = nr;
+    gfn_t orig_sgfn = sgfn;
+    mfn_t orig_smfn = smfn;
     int rc = 0;
 
     while ( nr )
@@ -1027,6 +1031,40 @@ int p2m_set_entry(struct p2m_domain *p2m,
            smfn = mfn_add(smfn, (1 << order));
 
         nr -= (1 << order);
+    }
+
+    if ( likely(!rc) )
+    {
+        /*
+         * It's time to update IOMMU mapping if the latter doesn't
+         * share page table with the CPU. Pass the whole memory block to let
+         * the IOMMU code decide what to do with it.
+         * The reason to update IOMMU mapping outside "while loop" is that
+         * the IOMMU might not support the pages/superpages the CPU can deal
+         * with (4K, 2M, 1G) and as result this will lead to non-optimal
+         * mapping.
+         * Also we assume that the IOMMU mapping should be updated only
+         * if CPU mapping passed successfully.
+         */
+        if ( need_iommu(p2m->domain) && !iommu_use_hap_pt(p2m->domain) )
+        {
+            if ( !mfn_eq(orig_smfn, INVALID_MFN) )
+            {
+                unsigned int flags = p2m_get_iommu_flags(t);
+
+                rc = iommu_map_pages(p2m->domain,
+                                     gfn_x(orig_sgfn),
+                                     mfn_x(orig_smfn),
+                                     orig_nr,
+                                     flags);
+            }
+            else
+            {
+                rc = iommu_unmap_pages(p2m->domain,
+                                       gfn_x(orig_sgfn),
+                                       orig_nr);
+            }
+        }
     }
 
     return rc;
