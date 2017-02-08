@@ -75,8 +75,8 @@ struct coproc_device {
 /* coproc callback functions */
 struct vcoproc_ops {
     /* callback to perform initialization for the vcoproc instance */
-    struct vcoproc_instance *(*vcoproc_init)(struct domain *,
-                                             struct coproc_device *);
+    int (*vcoproc_init)(struct domain *, struct coproc_device *,
+                        struct vcoproc_instance *);
     /* callback to perform deinitialization for the vcoproc instance */
     void (*vcoproc_deinit)(struct domain *, struct vcoproc_instance *);
     /*

@@ -118,6 +118,44 @@ out:
     return found ? coproc : NULL;
 }
 
+static struct vcoproc_instance *coproc_init_vcoproc(struct domain *d,
+                                                    struct coproc_device *coproc)
+{
+    struct vcoproc_instance *vcoproc;
+    int ret;
+
+    vcoproc = xzalloc(struct vcoproc_instance);
+    if ( !vcoproc )
+    {
+        printk("Failed to allocate vcoproc_instance for %s\n",
+               dev_path(coproc->dev));
+        return ERR_PTR(-ENOMEM);
+    }
+
+    vcoproc->coproc = coproc;
+    vcoproc->domain = d;
+    vcoproc->state = VCOPROC_UNKNOWN;
+    spin_lock_init(&vcoproc->lock);
+
+    ret = coproc->ops->vcoproc_init(d, coproc, vcoproc);
+    if ( ret )
+    {
+        printk("Failed to initialize vcoproc_instance for %s\n",
+               dev_path(coproc->dev));
+        goto out;
+    }
+
+    spin_lock(&coproc->vcoprocs_lock);
+    list_add(&vcoproc->vcoproc_elem, &coproc->vcoprocs);
+    spin_unlock(&coproc->vcoprocs_lock);
+
+    return vcoproc;
+
+out:
+    xfree(vcoproc);
+    return ERR_PTR( ret );
+}
+
 static int coproc_attach_to_domain(struct domain *d,
                                    struct coproc_device *coproc)
 {
@@ -136,7 +174,7 @@ static int coproc_attach_to_domain(struct domain *d,
         goto out;
     }
 
-    vcoproc = coproc->ops->vcoproc_init(d, coproc);
+    vcoproc = coproc_init_vcoproc(d, coproc);
     if ( IS_ERR(vcoproc) )
     {
         ret = PTR_ERR(vcoproc);

@@ -105,36 +105,20 @@ static int vcoproc_xxx_ctx_switch_to(struct vcoproc_instance *next)
     return 0;
 }
 
-static struct vcoproc_instance *vcoproc_xxx_vcoproc_init(struct domain *d,
-                                                         struct coproc_device *coproc_xxx)
+static int vcoproc_xxx_vcoproc_init(struct domain *d,
+                                    struct coproc_device *coproc,
+                                    struct vcoproc_instance *vcoproc)
 {
-    struct vcoproc_instance *vcoproc_xxx;
     int i;
 
-    vcoproc_xxx = xzalloc(struct vcoproc_instance);
-    if ( !vcoproc_xxx )
+    for ( i = 0; i < coproc->num_mmios; i++ )
     {
-        dev_err(coproc_xxx->dev, "failed to allocate vcoproc_instance\n");
-        return ERR_PTR(-ENOMEM);
-    }
-
-    vcoproc_xxx->coproc = coproc_xxx;
-    vcoproc_xxx->domain = d;
-    vcoproc_xxx->state = VCOPROC_UNKNOWN;
-    spin_lock_init(&vcoproc_xxx->lock);
-
-    for ( i = 0; i < coproc_xxx->num_mmios; i++ )
-    {
-        struct mmio *mmio = &coproc_xxx->mmios[i];
+        struct mmio *mmio = &coproc->mmios[i];
         register_mmio_handler(d, &vcoproc_xxx_mmio_handler,
                               mmio->addr, mmio->size, mmio);
     }
 
-    spin_lock(&coproc_xxx->vcoprocs_lock);
-    list_add(&vcoproc_xxx->vcoproc_elem, &coproc_xxx->vcoprocs);
-    spin_unlock(&coproc_xxx->vcoprocs_lock);
-
-    return vcoproc_xxx;
+    return 0;
 }
 
 static void vcoproc_xxx_vcoproc_deinit(struct domain *d,
