@@ -42,7 +42,6 @@ s_time_t vcoproc_context_switch(struct vcoproc_instance *curr,
                                 struct vcoproc_instance *next)
 {
     struct coproc_device *coproc;
-    s_time_t wait_time;
     int ret;
 
     if ( unlikely(curr == next) )
@@ -50,9 +49,25 @@ s_time_t vcoproc_context_switch(struct vcoproc_instance *curr,
 
     coproc = next ? next->coproc : curr->coproc;
 
-    wait_time = coproc->ops->ctx_switch_from(curr);
-    if ( wait_time )
-        return wait_time;
+    if ( likely(curr) )
+    {
+        s_time_t wait_time;
+
+        ASSERT(curr->state == VCOPROC_RUNNING ||
+               curr->state == VCOPROC_ASKED_TO_SLEEP);
+
+        wait_time = coproc->ops->ctx_switch_from(curr);
+
+        if ( wait_time == 0 )
+        {
+            if (curr->state == VCOPROC_RUNNING)
+                curr->state = VCOPROC_WAITING;
+            else
+                curr->state = VCOPROC_SLEEPING;
+        }
+        if ( wait_time )
+            return wait_time;
+    }
 
     /* TODO What to do if we failed to switch to "next"? */
     ret = coproc->ops->ctx_switch_to(next);
