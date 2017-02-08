@@ -95,18 +95,13 @@ static const struct mmio_handler_ops vcoproc_xxx_mmio_handler = {
 
 s_time_t vcoproc_xxx_ctx_switch_from(struct vcoproc_instance *curr)
 {
-    return NOW() & 1 ? coproc_wait_time : 0; /* random for now */
+    /* random for now */
+    return NOW() & 1 ? coproc_wait_time : 0;
 }
 
 static int vcoproc_xxx_ctx_switch_to(struct vcoproc_instance *next)
 {
-    if ( !next )
-        return 0;
-
-    ASSERT(next->state == VCOPROC_WAITING);
-
-    next->state = VCOPROC_RUNNING;
-
+    /* nothing to do */
     return 0;
 }
 

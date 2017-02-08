@@ -69,11 +69,18 @@ s_time_t vcoproc_context_switch(struct vcoproc_instance *curr,
             return wait_time;
     }
 
-    /* TODO What to do if we failed to switch to "next"? */
-    ret = coproc->ops->ctx_switch_to(next);
-    if ( ret )
-        panic("Failed to switch context to vcoproc \"%s\" (%d)\n",
-              dev_path(coproc->dev), ret);
+    if ( likely(next) )
+    {
+        ASSERT(next->state == VCOPROC_WAITING);
+
+        /* TODO What to do if we failed to switch to "next"? */
+        ret = coproc->ops->ctx_switch_to(next);
+        if ( unlikely(ret) )
+            panic("Failed to switch context to vcoproc \"%s\" (%d)\n",
+                  dev_path(coproc->dev), ret);
+        else
+            next->state = VCOPROC_RUNNING;
+    }
 
     return 0;
 }
