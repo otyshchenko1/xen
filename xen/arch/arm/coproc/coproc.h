@@ -86,6 +86,14 @@ struct vcoproc_ops {
     int (*ctx_switch_to)(struct vcoproc_instance *);
 };
 
+/* vcoproc read/write operation context */
+struct vcoproc_rw_context {
+    struct coproc_device *coproc;
+    struct hsr_dabt dabt;
+    uint32_t offset;
+    struct vcoproc_instance *vcoproc;
+};
+
 /* describe vcoproc state from the scheduler point of view */
 enum vcoproc_state {
     /* vcoproc hasn't been created yet or it has already been destroyed */
@@ -139,6 +147,16 @@ void vcoproc_continue_running(struct vcoproc_instance *);
 int coproc_release_vcoprocs(struct domain *);
 
 #define dev_path(dev) dt_node_full_name(dev_to_dt(dev))
+
+static inline void vcoproc_get_rw_context(struct domain *d, struct mmio *mmio,
+                                          mmio_info_t *info,
+                                          struct vcoproc_rw_context *ctx)
+{
+    ctx->coproc = mmio->coproc;
+    ctx->dabt = info->dabt;
+    ctx->offset = info->gpa - mmio->addr;
+    ctx->vcoproc = coproc_get_vcoproc(d, ctx->coproc);
+}
 
 #endif /* __ARCH_ARM_COPROC_COPROC_H__ */
 

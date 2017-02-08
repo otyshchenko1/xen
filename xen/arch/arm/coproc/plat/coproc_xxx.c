@@ -36,16 +36,11 @@ static int vcoproc_xxx_read(struct vcpu *v, mmio_info_t *info, register_t *r,
                             void *priv)
 {
     struct mmio *mmio = priv;
-    struct coproc_device *coproc_xxx = mmio->coproc;
-    struct hsr_dabt dabt = info->dabt;
-    uint32_t offset = info->gpa - mmio->addr;
-    struct vcoproc_instance *vcoproc_xxx =
-        coproc_get_vcoproc(v->domain, coproc_xxx);
+    struct vcoproc_rw_context ctx;
 
-    dev_dbg(coproc_xxx->dev, "read r%d=%"PRIregister" offset %#08x base %#08x\n",
-            dabt.reg, *r, offset, (uint32_t)mmio->addr);
-
-    (void)vcoproc_xxx;
+    vcoproc_get_rw_context(v->domain, mmio, info, &ctx);
+    dev_dbg(ctx.coproc->dev, "read r%d=%"PRIregister" offset %#08x base %#08x\n",
+            ctx.dabt.reg, *r, ctx.offset, (uint32_t)mmio->addr);
 
     return 1;
 }
@@ -54,35 +49,30 @@ static int vcoproc_xxx_write(struct vcpu *v, mmio_info_t *info, register_t r,
                              void *priv)
 {
     struct mmio *mmio = priv;
-    struct coproc_device *coproc_xxx = mmio->coproc;
-    struct hsr_dabt dabt = info->dabt;
-    uint32_t offset = info->gpa - mmio->addr;
-    struct vcoproc_instance *vcoproc_xxx =
-        coproc_get_vcoproc(v->domain, coproc_xxx);
+    struct vcoproc_rw_context ctx;
 
-    dev_dbg(coproc_xxx->dev, "write r%d=%"PRIregister" offset %#08x base %#08x\n",
-            dabt.reg, r, offset, (uint32_t)mmio->addr);
+    vcoproc_get_rw_context(v->domain, mmio, info, &ctx);
+    dev_dbg(ctx.coproc->dev, "write r%d=%"PRIregister" offset %#08x base %#08x\n",
+            ctx.dabt.reg, r, ctx.offset, (uint32_t)mmio->addr);
 
 #if 1
     /* for debug purposes */
 #define COPROC_XXX_POWER_REG	0x10
 #define CORPOC_XXX_ENABLE		(1 << 0)
 
-    if ( offset == COPROC_XXX_POWER_REG )
+    if ( ctx.offset == COPROC_XXX_POWER_REG )
     {
         int i;
 
-        /* Just inject all irqs what coproc has */
-        for ( i = 0; i < coproc_xxx->num_irqs; i++ )
-            vgic_vcpu_inject_spi(vcoproc_xxx->domain, coproc_xxx->irqs[i]);
+        /* Just inject all irqs that coproc has */
+        for ( i = 0; i < ctx.coproc->num_irqs; i++ )
+            vgic_vcpu_inject_spi(ctx.vcoproc->domain, ctx.coproc->irqs[i]);
 
         if ( r & CORPOC_XXX_ENABLE )
-            vcoproc_sheduler_vcoproc_wake(coproc_xxx->sched, vcoproc_xxx);
+            vcoproc_sheduler_vcoproc_wake(ctx.coproc->sched, ctx.vcoproc);
         else
-            vcoproc_sheduler_vcoproc_sleep(coproc_xxx->sched, vcoproc_xxx);
+            vcoproc_sheduler_vcoproc_sleep(ctx.coproc->sched, ctx.vcoproc);
     }
-#else
-    (void)vcoproc_xxx;
 #endif
 
     return 1;
