@@ -24,6 +24,8 @@
 #include <xen/device_tree.h>
 #include <asm/mmio.h>
 
+struct coproc_device;
+
 /* Copied from smmu.c */
 
 struct resource
@@ -167,6 +169,9 @@ COPROC_REG_HELPERS(64, 0x7);
 COPROC_REG_HELPERS(32, 0x3);
 
 #undef COPROC_REG_HELPERS
+
+struct vcoproc_instance *coproc_get_vcoproc(struct domain *d,
+                                            struct coproc_device *coproc);
 
 #endif /* __ARCH_ARM_COPROC_PLAT_COMMON_H__ */
 

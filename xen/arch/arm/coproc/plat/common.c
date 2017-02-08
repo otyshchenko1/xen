@@ -22,6 +22,7 @@
 #include <xen/irq.h>
 #include <xen/vmap.h>
 
+#include "../coproc.h"
 #include "common.h"
 
 /* Xen: Helpers to get device MMIO and IRQs */
@@ -81,6 +82,33 @@ void __iomem *devm_ioremap_resource(struct device *dev, struct resource *res)
 
     return ptr;
 }
+
+struct vcoproc_instance *coproc_get_vcoproc(struct domain *d,
+                                            struct coproc_device *coproc)
+{
+    struct vcoproc_instance *vcoproc = NULL;
+    bool_t found = false;
+
+    spin_lock(&coproc->vcoprocs_lock);
+
+    if ( list_empty(&coproc->vcoprocs) )
+        goto out;
+
+    list_for_each_entry( vcoproc, &coproc->vcoprocs, vcoproc_elem )
+    {
+        if ( vcoproc->domain == d )
+        {
+            found = true;
+            break;
+        }
+    }
+
+out:
+    spin_unlock(&coproc->vcoprocs_lock);
+
+    return found ? vcoproc : NULL;
+}
+
 /*
  * Local variables:
  * mode: C

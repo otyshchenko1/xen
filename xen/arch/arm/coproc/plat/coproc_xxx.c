@@ -32,32 +32,6 @@ static s_time_t coproc_wait_time = MILLISECS(500);
 
 #define DT_MATCH_COPROC_XXX DT_MATCH_COMPATIBLE("vendor_xxx,coproc_xxx")
 
-static struct vcoproc_instance *coproc_xxx_get_vcoproc(struct domain *d,
-                                                       struct coproc_device *coproc_xxx)
-{
-    struct vcoproc_instance *vcoproc_xxx = NULL;
-    bool_t found = false;
-
-    spin_lock(&coproc_xxx->vcoprocs_lock);
-
-    if ( list_empty(&coproc_xxx->vcoprocs) )
-        goto out;
-
-    list_for_each_entry( vcoproc_xxx, &coproc_xxx->vcoprocs, vcoproc_elem )
-    {
-        if ( vcoproc_xxx->domain == d )
-        {
-            found = true;
-            break;
-        }
-    }
-
-out:
-    spin_unlock(&coproc_xxx->vcoprocs_lock);
-
-    return found ? vcoproc_xxx : NULL;
-}
-
 static int vcoproc_xxx_read(struct vcpu *v, mmio_info_t *info, register_t *r,
                             void *priv)
 {
@@ -66,7 +40,7 @@ static int vcoproc_xxx_read(struct vcpu *v, mmio_info_t *info, register_t *r,
     struct hsr_dabt dabt = info->dabt;
     uint32_t offset = info->gpa - mmio->addr;
     struct vcoproc_instance *vcoproc_xxx =
-        coproc_xxx_get_vcoproc(v->domain, coproc_xxx);
+        coproc_get_vcoproc(v->domain, coproc_xxx);
 
     dev_dbg(coproc_xxx->dev, "read r%d=%"PRIregister" offset %#08x base %#08x\n",
             dabt.reg, *r, offset, (uint32_t)mmio->addr);
@@ -84,7 +58,7 @@ static int vcoproc_xxx_write(struct vcpu *v, mmio_info_t *info, register_t r,
     struct hsr_dabt dabt = info->dabt;
     uint32_t offset = info->gpa - mmio->addr;
     struct vcoproc_instance *vcoproc_xxx =
-        coproc_xxx_get_vcoproc(v->domain, coproc_xxx);
+        coproc_get_vcoproc(v->domain, coproc_xxx);
 
     dev_dbg(coproc_xxx->dev, "write r%d=%"PRIregister" offset %#08x base %#08x\n",
             dabt.reg, r, offset, (uint32_t)mmio->addr);
@@ -204,7 +178,7 @@ static void vcoproc_xxx_vcoproc_deinit(struct domain *d,
 static bool_t coproc_xxx_vcoproc_is_created(struct domain *d,
                                             struct coproc_device *coproc_xxx)
 {
-    return coproc_xxx_get_vcoproc(d, coproc_xxx) ? true : false;
+    return coproc_get_vcoproc(d, coproc_xxx) ? true : false;
 }
 
 static const struct vcoproc_ops vcoproc_xxx_vcoproc_ops = {
