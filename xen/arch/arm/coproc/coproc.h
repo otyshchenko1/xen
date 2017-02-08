@@ -27,7 +27,7 @@
 #include <xen/device_tree.h>
 #include <public/domctl.h>
 
-#include "plat/common.h"
+#include "plat/platform_device.h"
 #include "schedule.h"
 
 /* coproc memory range */

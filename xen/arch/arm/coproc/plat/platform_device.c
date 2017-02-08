@@ -1,5 +1,5 @@
 /*
- * xen/arch/arm/coproc/plat/common.c
+ * xen/arch/arm/coproc/plat/platform_device.c
  *
  * Common platform code for all Remote processors
  * based on xen/drivers/passthrough/arm/smmu.c
