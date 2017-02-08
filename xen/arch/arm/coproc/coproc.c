@@ -22,6 +22,7 @@
 #include <xen/guest_access.h>
 #include <xen/keyhandler.h>
 
+#include "plat/common.h"
 #include "coproc.h"
 
 /* dom0_coprocs: comma-separated list of coprocs for domain 0 */
@@ -156,6 +157,12 @@ out:
     return ERR_PTR( ret );
 }
 
+static inline bool_t coproc_is_created_vcoproc(struct domain *d,
+                                               struct coproc_device *coproc)
+{
+    return coproc_get_vcoproc(d, coproc) ? true : false;
+}
+
 static void coproc_deinit_vcoproc(struct domain *d,
                                   struct vcoproc_instance *vcoproc)
 {
@@ -184,7 +191,7 @@ static int coproc_attach_to_domain(struct domain *d,
 
     spin_lock(&coprocs_lock);
 
-    if ( coproc->ops->vcoproc_is_created(d, coproc) )
+    if ( coproc_is_created_vcoproc(d, coproc) )
     {
         ret = -EEXIST;
         goto out;
@@ -275,7 +282,7 @@ bool_t coproc_is_attached_to_domain(struct domain *d, const char *path)
         return false;
 
     spin_lock(&coprocs_lock);
-    is_created = coproc->ops->vcoproc_is_created(d, coproc);
+    is_created = coproc_is_created_vcoproc(d, coproc);
     spin_unlock(&coprocs_lock);
 
     return is_created;

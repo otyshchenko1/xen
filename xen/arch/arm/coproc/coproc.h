@@ -79,11 +79,6 @@ struct vcoproc_ops {
                         struct vcoproc_instance *);
     /* callback to perform deinitialization for the vcoproc instance */
     void (*vcoproc_deinit)(struct domain *, struct vcoproc_instance *);
-    /*
-     * callback to check if the vcoproc instance
-     * has been already created for this domain
-     */
-    bool_t (*vcoproc_is_created)(struct domain *, struct coproc_device *);
     /* callback to perform context switch from the running vcoproc instance */
     s_time_t (*ctx_switch_from)(struct vcoproc_instance *);
     /* callback to perform context switch to the waiting vcoproc instance */

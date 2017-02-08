@@ -127,16 +127,9 @@ static void vcoproc_xxx_vcoproc_deinit(struct domain *d,
     /* nothing to do */
 }
 
-static bool_t coproc_xxx_vcoproc_is_created(struct domain *d,
-                                            struct coproc_device *coproc_xxx)
-{
-    return coproc_get_vcoproc(d, coproc_xxx) ? true : false;
-}
-
 static const struct vcoproc_ops vcoproc_xxx_vcoproc_ops = {
     .vcoproc_init        = vcoproc_xxx_vcoproc_init,
     .vcoproc_deinit      = vcoproc_xxx_vcoproc_deinit,
-    .vcoproc_is_created  = coproc_xxx_vcoproc_is_created,
     .ctx_switch_from     = vcoproc_xxx_ctx_switch_from,
     .ctx_switch_to       = vcoproc_xxx_ctx_switch_to,
 };
