@@ -117,7 +117,7 @@ static void vcoproc_xxx_vcoproc_deinit(struct domain *d,
     /* nothing to do */
 }
 
-static const struct vcoproc_ops vcoproc_xxx_vcoproc_ops = {
+static const struct coproc_ops vcoproc_xxx_vcoproc_ops = {
     .vcoproc_init        = vcoproc_xxx_vcoproc_init,
     .vcoproc_deinit      = vcoproc_xxx_vcoproc_deinit,
     .ctx_switch_from     = vcoproc_xxx_ctx_switch_from,

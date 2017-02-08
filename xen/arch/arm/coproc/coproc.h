@@ -67,14 +67,14 @@ struct coproc_device {
     struct list_head vcoprocs;
 
     /* coproc callback functions */
-    const struct vcoproc_ops *ops;
+    const struct coproc_ops *ops;
 
     /* scheduler instance for this coproc */
     struct vcoproc_scheduler *sched;
 };
 
 /* coproc callback functions */
-struct vcoproc_ops {
+struct coproc_ops {
     /* callback to perform initialization for the vcoproc instance */
     int (*vcoproc_init)(struct domain *, struct coproc_device *,
                         struct vcoproc_instance *);
@@ -133,7 +133,7 @@ struct vcoproc_instance {
 
 void coproc_init(void);
 struct coproc_device * coproc_alloc(struct platform_device *,
-                                    const struct vcoproc_ops *);
+                                    const struct coproc_ops *);
 int coproc_register(struct coproc_device *);
 void coproc_release(struct coproc_device *);
 struct vcoproc_instance *coproc_get_vcoproc(struct domain *,

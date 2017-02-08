@@ -315,7 +315,7 @@ bool_t coproc_is_attached_to_domain(struct domain *d, const char *path)
 }
 
 struct coproc_device *coproc_alloc(struct platform_device *pdev,
-                                   const struct vcoproc_ops *ops)
+                                   const struct coproc_ops *ops)
 {
     struct coproc_device *coproc;
     struct device *dev = &pdev->dev;
