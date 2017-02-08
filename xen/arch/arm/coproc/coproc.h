@@ -27,6 +27,7 @@
 #include <xen/device_tree.h>
 #include <public/domctl.h>
 
+#include "plat/common.h"
 #include "schedule.h"
 
 /* coproc memory range */
@@ -123,7 +124,10 @@ struct vcoproc_instance {
 };
 
 void coproc_init(void);
+struct coproc_device * coproc_alloc(struct platform_device *,
+                                    const struct vcoproc_ops *);
 int coproc_register(struct coproc_device *);
+void coproc_release(struct coproc_device *);
 int vcoproc_domain_init(struct domain *);
 void vcoproc_domain_free(struct domain *);
 int coproc_do_domctl(struct xen_domctl *, struct domain *,

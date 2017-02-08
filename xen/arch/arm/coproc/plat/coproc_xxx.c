@@ -146,86 +146,13 @@ static int coproc_xxx_dt_probe(struct platform_device *pdev)
 {
     struct coproc_device *coproc_xxx;
     struct device *dev = &pdev->dev;
-    struct resource *res;
-    int num_irqs, num_mmios, i, ret;
+    int i, ret;
 
-    coproc_xxx = xzalloc(struct coproc_device);
-    if ( !coproc_xxx )
-    {
-        dev_err(dev, "failed to allocate coproc_device\n");
-        return -ENOMEM;
-    }
-    coproc_xxx->dev = dev;
+    coproc_xxx = coproc_alloc(pdev, &vcoproc_xxx_vcoproc_ops);
+    if ( IS_ERR_OR_NULL(coproc_xxx) )
+        return PTR_ERR(coproc_xxx);
 
-    num_mmios = 0;
-    while ( (res = platform_get_resource(pdev, IORESOURCE_MEM, num_mmios)) )
-        num_mmios++;
-
-    if ( !num_mmios )
-    {
-        dev_err(dev, "failed to find at least one mmio\n");
-        ret = -ENODEV;
-        goto out_free_mmios;
-    }
-
-    coproc_xxx->mmios = xzalloc_array(struct mmio, num_mmios);
-    if ( !coproc_xxx->mmios )
-    {
-        dev_err(dev, "failed to allocate %d mmios\n", num_mmios);
-        ret = -ENOMEM;
-        goto out_free_mmios;
-    }
-
-    for ( i = 0; i < num_mmios; ++i )
-    {
-        res = platform_get_resource(pdev, IORESOURCE_MEM, i);
-        coproc_xxx->mmios[i].base = devm_ioremap_resource(dev, res);
-        if ( IS_ERR(coproc_xxx->mmios[i].base) )
-        {
-            ret = PTR_ERR(coproc_xxx->mmios[i].base);
-            goto out_iounmap_mmios;
-        }
-
-        coproc_xxx->mmios[i].size = resource_size(res);
-        coproc_xxx->mmios[i].addr = resource_addr(res);
-        coproc_xxx->mmios[i].coproc = coproc_xxx;
-    }
-    coproc_xxx->num_mmios = num_mmios;
-
-    num_irqs = 0;
-    while ( (res = platform_get_resource(pdev, IORESOURCE_IRQ, num_irqs)) )
-        num_irqs++;
-
-    if ( !num_irqs )
-    {
-        dev_err(dev, "failed to find at least one irq\n");
-        ret = -ENODEV;
-        goto out_free_irqs;
-    }
-
-    coproc_xxx->irqs = xzalloc_array(unsigned int, num_irqs);
-    if ( !coproc_xxx->irqs )
-    {
-        dev_err(dev, "failed to allocate %d irqs\n", num_irqs);
-        ret = -ENOMEM;
-        goto out_free_irqs;
-    }
-
-    for ( i = 0; i < num_irqs; ++i )
-    {
-        int irq = platform_get_irq(pdev, i);
-
-        if ( irq < 0 )
-        {
-            dev_err(dev, "failed to get irq index %d\n", i);
-            ret = -ENODEV;
-            goto out_free_irqs;
-        }
-        coproc_xxx->irqs[i] = irq;
-    }
-    coproc_xxx->num_irqs = num_irqs;
-
-    for ( i = 0; i < num_irqs; ++i )
+    for ( i = 0; i < coproc_xxx->num_irqs; ++i )
     {
         ret = request_irq(coproc_xxx->irqs[i],
                          IRQF_SHARED,
@@ -239,10 +166,6 @@ static int coproc_xxx_dt_probe(struct platform_device *pdev)
         }
     }
 
-    INIT_LIST_HEAD(&coproc_xxx->vcoprocs);
-    spin_lock_init(&coproc_xxx->vcoprocs_lock);
-    coproc_xxx->ops = &vcoproc_xxx_vcoproc_ops;
-
     ret = coproc_register(coproc_xxx);
     if ( ret )
     {
@@ -255,18 +178,7 @@ static int coproc_xxx_dt_probe(struct platform_device *pdev)
 out_release_irqs:
     while ( i-- )
         release_irq(coproc_xxx->irqs[i], coproc_xxx);
-out_free_irqs:
-    xfree(coproc_xxx->irqs);
-out_iounmap_mmios:
-    for ( i = 0; i < num_mmios; ++i )
-    {
-        if ( !IS_ERR(coproc_xxx->mmios[i].base) )
-            iounmap(coproc_xxx->mmios[i].base);
-    }
-out_free_mmios:
-    xfree(coproc_xxx->mmios);
-    xfree(coproc_xxx);
-
+    coproc_release(coproc_xxx);
     return ret;
 }
 
