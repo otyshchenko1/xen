@@ -124,16 +124,7 @@ static int vcoproc_xxx_vcoproc_init(struct domain *d,
 static void vcoproc_xxx_vcoproc_deinit(struct domain *d,
                                        struct vcoproc_instance *vcoproc_xxx)
 {
-    struct coproc_device *coproc_xxx;
-
-    if ( !vcoproc_xxx )
-        return;
-
-    coproc_xxx = vcoproc_xxx->coproc;
-    spin_lock(&coproc_xxx->vcoprocs_lock);
-    list_del(&vcoproc_xxx->vcoproc_elem);
-    spin_unlock(&coproc_xxx->vcoprocs_lock);
-    xfree(vcoproc_xxx);
+    /* nothing to do */
 }
 
 static bool_t coproc_xxx_vcoproc_is_created(struct domain *d,
