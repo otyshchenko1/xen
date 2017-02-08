@@ -136,6 +136,8 @@ struct coproc_device * coproc_alloc(struct platform_device *,
                                     const struct vcoproc_ops *);
 int coproc_register(struct coproc_device *);
 void coproc_release(struct coproc_device *);
+struct vcoproc_instance *coproc_get_vcoproc(struct domain *,
+                                            struct coproc_device *);
 int vcoproc_domain_init(struct domain *);
 void vcoproc_domain_free(struct domain *);
 int coproc_do_domctl(struct xen_domctl *, struct domain *,
