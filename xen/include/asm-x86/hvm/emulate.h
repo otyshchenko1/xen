@@ -51,15 +51,23 @@ int hvm_emulate_one_no_write(
 void hvm_emulate_one_vm_event(enum emul_kind kind,
     unsigned int trapnr,
     unsigned int errcode);
-void hvm_emulate_prepare(
+/* Must be called once to set up hvmemul state. */
+void hvm_emulate_init_once(
     struct hvm_emulate_ctxt *hvmemul_ctxt,
     struct cpu_user_regs *regs);
-void hvm_emulate_init(
+/* Must be called once before each instruction emulated. */
+void hvm_emulate_init_per_insn(
     struct hvm_emulate_ctxt *hvmemul_ctxt,
     const unsigned char *insn_buf,
     unsigned int insn_bytes);
 void hvm_emulate_writeback(
     struct hvm_emulate_ctxt *hvmemul_ctxt);
+int hvmemul_cpuid(
+    unsigned int *eax,
+    unsigned int *ebx,
+    unsigned int *ecx,
+    unsigned int *edx,
+    struct x86_emulate_ctxt *ctxt);
 struct segment_register *hvmemul_get_seg_reg(
     enum x86_segment seg,
     struct hvm_emulate_ctxt *hvmemul_ctxt);

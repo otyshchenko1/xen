@@ -330,7 +330,7 @@ static const char *const opt_runqueue_str[] = {
     [OPT_RUNQUEUE_NODE] = "node",
     [OPT_RUNQUEUE_ALL] = "all"
 };
-static int __read_mostly opt_runqueue = OPT_RUNQUEUE_CORE;
+static int __read_mostly opt_runqueue = OPT_RUNQUEUE_SOCKET;
 
 static void parse_credit2_runqueue(const char *s)
 {
@@ -1006,7 +1006,12 @@ runq_tickle(const struct scheduler *ops, struct csched2_vcpu *new, s_time_t now)
 
         cur = CSCHED2_VCPU(curr_on_cpu(i));
 
-        ASSERT(!is_idle_vcpu(cur->vcpu));
+        /*
+         * Even if the cpu is not in rqd->idle, it may be running the
+         * idle vcpu, if it's doing tasklet work. Just skip it.
+         */
+        if ( is_idle_vcpu(cur->vcpu) )
+            continue;
 
         /* Update credits for current to see if we want to preempt. */
         burn_credits(rqd, cur, now);
@@ -1042,6 +1047,7 @@ runq_tickle(const struct scheduler *ops, struct csched2_vcpu *new, s_time_t now)
         return;
     }
 
+    ASSERT(!is_idle_vcpu(curr_on_cpu(ipid)));
     SCHED_STAT_CRANK(tickled_busy_cpu);
  tickle:
     BUG_ON(ipid == -1);
@@ -2954,8 +2960,6 @@ csched2_init(struct scheduler *ops)
     struct csched2_private *prv;
 
     printk("Initializing Credit2 scheduler\n");
-    printk(" WARNING: This is experimental software in development.\n" \
-           " Use at your own risk.\n");
 
     printk(XENLOG_INFO " load_precision_shift: %d\n"
            XENLOG_INFO " load_window_shift: %d\n"

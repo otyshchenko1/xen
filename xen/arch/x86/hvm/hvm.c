@@ -2037,6 +2037,30 @@ int hvm_set_efer(uint64_t value)
         return X86EMUL_EXCEPTION;
     }
 
+    if ( (value & EFER_LME) && !(v->arch.hvm_vcpu.guest_efer & EFER_LME) )
+    {
+        struct segment_register cs;
+
+        hvm_get_segment_register(v, x86_seg_cs, &cs);
+
+        /*
+         * %cs may be loaded with both .D and .L set in legacy mode, and both
+         * are captured in the VMCS/VMCB.
+         *
+         * If a guest does this and then tries to transition into long mode,
+         * the vmentry from setting LME fails due to invalid guest state,
+         * because %cr0.PG is still clear.
+         *
+         * When LME becomes set, clobber %cs.L to keep the guest firmly in
+         * compatibility mode until it reloads %cs itself.
+         */
+        if ( cs.attr.fields.l )
+        {
+            cs.attr.fields.l = 0;
+            hvm_set_segment_register(v, x86_seg_cs, &cs);
+        }
+    }
+
     if ( nestedhvm_enabled(v->domain) && cpu_has_svm &&
        ((value & EFER_SVME) == 0 ) &&
        ((value ^ v->arch.hvm_vcpu.guest_efer) & EFER_SVME) )
@@ -2488,6 +2512,10 @@ bool_t hvm_virtual_to_linear_addr(
          */
         addr = (uint32_t)(addr + reg->base);
 
+        /* Segment not valid for use (cooked meaning of .p)? */
+        if ( !reg->attr.fields.p )
+            goto out;
+
         switch ( access_type )
         {
         case hvm_access_read:
@@ -2704,17 +2732,16 @@ static void hvm_unmap_entry(void *p)
 }
 
 static int hvm_load_segment_selector(
-    enum x86_segment seg, uint16_t sel)
+    enum x86_segment seg, uint16_t sel, unsigned int eflags)
 {
     struct segment_register desctab, cs, segr;
     struct desc_struct *pdesc, desc;
     u8 dpl, rpl, cpl;
     bool_t writable;
     int fault_type = TRAP_invalid_tss;
-    struct cpu_user_regs *regs = guest_cpu_user_regs();
     struct vcpu *v = current;
 
-    if ( regs->eflags & X86_EFLAGS_VM )
+    if ( eflags & X86_EFLAGS_VM )
     {
         segr.sel = sel;
         segr.base = (uint32_t)sel << 4;
@@ -2743,6 +2770,10 @@ static int hvm_load_segment_selector(
     hvm_get_segment_register(
         v, (sel & 4) ? x86_seg_ldtr : x86_seg_gdtr, &desctab);
 
+    /* Segment not valid for use (cooked meaning of .p)? */
+    if ( !desctab.attr.fields.p )
+        goto fail;
+
     /* Check against descriptor table limit. */
     if ( ((sel & 0xfff8) + 7) > desctab.limit )
         goto fail;
@@ -2753,14 +2784,6 @@ static int hvm_load_segment_selector(
 
     do {
         desc = *pdesc;
-
-        /* Segment present in memory? */
-        if ( !(desc.b & _SEGMENT_P) )
-        {
-            fault_type = (seg != x86_seg_ss) ? TRAP_no_segment
-                                             : TRAP_stack_error;
-            goto unmap_and_fail;
-        }
 
         /* LDT descriptor is a system segment. All others are code/data. */
         if ( (desc.b & (1u<<12)) == ((seg == x86_seg_ldtr) << 12) )
@@ -2805,6 +2828,14 @@ static int hvm_load_segment_selector(
                  && ((dpl < cpl) || (dpl < rpl)) )
                 goto unmap_and_fail;
             break;
+        }
+
+        /* Segment present in memory? */
+        if ( !(desc.b & _SEGMENT_P) )
+        {
+            fault_type = (seg != x86_seg_ss) ? TRAP_no_segment
+                                             : TRAP_stack_error;
+            goto unmap_and_fail;
         }
     } while ( !(desc.b & 0x100) && /* Ensure Accessed flag is set */
               writable && /* except if we are to discard writes */
@@ -2859,7 +2890,7 @@ void hvm_task_switch(
         u32 cr3, eip, eflags, eax, ecx, edx, ebx, esp, ebp, esi, edi;
         u16 es, _3, cs, _4, ss, _5, ds, _6, fs, _7, gs, _8, ldt, _9;
         u16 trace, iomap;
-    } tss = { 0 };
+    } tss;
 
     hvm_get_segment_register(v, x86_seg_gdtr, &gdt);
     hvm_get_segment_register(v, x86_seg_tr, &prev_tr);
@@ -2892,17 +2923,17 @@ void hvm_task_switch(
     if ( tr.attr.fields.g )
         tr.limit = (tr.limit << 12) | 0xfffu;
 
-    if ( !tr.attr.fields.p )
-    {
-        hvm_inject_hw_exception(TRAP_no_segment, tss_sel & 0xfff8);
-        goto out;
-    }
-
     if ( tr.attr.fields.type != ((taskswitch_reason == TSW_iret) ? 0xb : 0x9) )
     {
         hvm_inject_hw_exception(
             (taskswitch_reason == TSW_iret) ? TRAP_invalid_tss : TRAP_gp_fault,
             tss_sel & 0xfff8);
+        goto out;
+    }
+
+    if ( !tr.attr.fields.p )
+    {
+        hvm_inject_hw_exception(TRAP_no_segment, tss_sel & 0xfff8);
         goto out;
     }
 
@@ -2921,7 +2952,6 @@ void hvm_task_switch(
     if ( taskswitch_reason == TSW_iret )
         eflags &= ~X86_EFLAGS_NT;
 
-    tss.cr3    = v->arch.hvm_vcpu.guest_cr[3];
     tss.eip    = regs->eip;
     tss.eflags = eflags;
     tss.eax    = regs->eax;
@@ -2948,8 +2978,11 @@ void hvm_task_switch(
     hvm_get_segment_register(v, x86_seg_ldtr, &segr);
     tss.ldt = segr.sel;
 
-    rc = hvm_copy_to_guest_virt(
-        prev_tr.base, &tss, sizeof(tss), PFEC_page_present);
+    rc = hvm_copy_to_guest_virt(prev_tr.base + offsetof(typeof(tss), eip),
+                                &tss.eip,
+                                offsetof(typeof(tss), trace) -
+                                offsetof(typeof(tss), eip),
+                                PFEC_page_present);
     if ( rc != HVMCOPY_okay )
         goto out;
 
@@ -2962,6 +2995,8 @@ void hvm_task_switch(
     if ( rc != HVMCOPY_okay )
         goto out;
 
+    if ( hvm_load_segment_selector(x86_seg_ldtr, tss.ldt, 0) )
+        goto out;
 
     if ( hvm_set_cr3(tss.cr3, 1) )
         goto out;
@@ -2977,31 +3012,27 @@ void hvm_task_switch(
     regs->esi    = tss.esi;
     regs->edi    = tss.edi;
 
-    if ( (taskswitch_reason == TSW_call_or_int) )
+    exn_raised = 0;
+    if ( hvm_load_segment_selector(x86_seg_es, tss.es, tss.eflags) ||
+         hvm_load_segment_selector(x86_seg_cs, tss.cs, tss.eflags) ||
+         hvm_load_segment_selector(x86_seg_ss, tss.ss, tss.eflags) ||
+         hvm_load_segment_selector(x86_seg_ds, tss.ds, tss.eflags) ||
+         hvm_load_segment_selector(x86_seg_fs, tss.fs, tss.eflags) ||
+         hvm_load_segment_selector(x86_seg_gs, tss.gs, tss.eflags) )
+        exn_raised = 1;
+
+    if ( taskswitch_reason == TSW_call_or_int )
     {
         regs->eflags |= X86_EFLAGS_NT;
         tss.back_link = prev_tr.sel;
+
+        rc = hvm_copy_to_guest_virt(tr.base + offsetof(typeof(tss), back_link),
+                                    &tss.back_link, sizeof(tss.back_link), 0);
+        if ( rc == HVMCOPY_bad_gva_to_gfn )
+            exn_raised = 1;
+        else if ( rc != HVMCOPY_okay )
+            goto out;
     }
-
-    exn_raised = 0;
-    if ( hvm_load_segment_selector(x86_seg_ldtr, tss.ldt) ||
-         hvm_load_segment_selector(x86_seg_es, tss.es) ||
-         hvm_load_segment_selector(x86_seg_cs, tss.cs) ||
-         hvm_load_segment_selector(x86_seg_ss, tss.ss) ||
-         hvm_load_segment_selector(x86_seg_ds, tss.ds) ||
-         hvm_load_segment_selector(x86_seg_fs, tss.fs) ||
-         hvm_load_segment_selector(x86_seg_gs, tss.gs) )
-        exn_raised = 1;
-
-    rc = hvm_copy_to_guest_virt(
-        tr.base, &tss, sizeof(tss), PFEC_page_present);
-    if ( rc == HVMCOPY_bad_gva_to_gfn )
-        exn_raised = 1;
-    else if ( rc != HVMCOPY_okay )
-        goto out;
-
-    if ( (tss.trace & 1) && !exn_raised )
-        hvm_inject_hw_exception(TRAP_debug, HVM_DELIVER_NO_ERROR_CODE);
 
     tr.attr.fields.type = 0xb; /* busy 32-bit tss */
     hvm_set_segment_register(v, x86_seg_tr, &tr);
@@ -3018,16 +3049,31 @@ void hvm_task_switch(
 
     if ( errcode >= 0 )
     {
-        struct segment_register reg;
         unsigned long linear_addr;
-        regs->esp -= 4;
-        hvm_get_segment_register(current, x86_seg_ss, &reg);
-        /* Todo: do not ignore access faults here. */
-        if ( hvm_virtual_to_linear_addr(x86_seg_ss, &reg, regs->esp,
-                                        4, hvm_access_write, 32,
+        unsigned int opsz, sp;
+
+        hvm_get_segment_register(v, x86_seg_cs, &segr);
+        opsz = segr.attr.fields.db ? 4 : 2;
+        hvm_get_segment_register(v, x86_seg_ss, &segr);
+        if ( segr.attr.fields.db )
+            sp = regs->_esp -= opsz;
+        else
+            sp = *(uint16_t *)&regs->esp -= opsz;
+        if ( hvm_virtual_to_linear_addr(x86_seg_ss, &segr, sp, opsz,
+                                        hvm_access_write,
+                                        16 << segr.attr.fields.db,
                                         &linear_addr) )
-            hvm_copy_to_guest_virt_nofault(linear_addr, &errcode, 4, 0);
+        {
+            rc = hvm_copy_to_guest_virt(linear_addr, &errcode, opsz, 0);
+            if ( rc == HVMCOPY_bad_gva_to_gfn )
+                exn_raised = 1;
+            else if ( rc != HVMCOPY_okay )
+                goto out;
+        }
     }
+
+    if ( (tss.trace & 1) && !exn_raised )
+        hvm_inject_hw_exception(TRAP_debug, HVM_DELIVER_NO_ERROR_CODE);
 
  out:
     hvm_unmap_entry(optss_desc);
@@ -3656,6 +3702,20 @@ void hvm_cpuid(unsigned int input, unsigned int *eax, unsigned int *ebx,
     }
 }
 
+bool hvm_check_cpuid_faulting(struct vcpu *v)
+{
+    struct segment_register sreg;
+
+    if ( !v->arch.cpuid_faulting )
+        return false;
+
+    hvm_get_segment_register(v, x86_seg_ss, &sreg);
+    if ( sreg.attr.fields.dpl == 0 )
+        return false;
+
+    return true;
+}
+
 static uint64_t _hvm_rdtsc_intercept(void)
 {
     struct vcpu *curr = current;
@@ -3998,7 +4058,7 @@ void hvm_ud_intercept(struct cpu_user_regs *regs)
 {
     struct hvm_emulate_ctxt ctxt;
 
-    hvm_emulate_prepare(&ctxt, regs);
+    hvm_emulate_init_once(&ctxt, regs);
 
     if ( opt_hvm_fep )
     {
@@ -4241,11 +4301,13 @@ int hvm_do_hypercall(struct cpu_user_regs *regs)
     struct domain *currd = curr->domain;
     struct segment_register sreg;
     int mode = hvm_guest_x86_mode(curr);
-    uint32_t eax = regs->eax;
+    unsigned long eax = regs->_eax;
 
     switch ( mode )
     {
-    case 8:        
+    case 8:
+        eax = regs->rax;
+        /* Fallthrough to permission check. */
     case 4:
     case 2:
         hvm_get_segment_register(curr, x86_seg_ss, &sreg);
@@ -4283,7 +4345,7 @@ int hvm_do_hypercall(struct cpu_user_regs *regs)
         unsigned long r8 = regs->r8;
         unsigned long r9 = regs->r9;
 
-        HVM_DBG_LOG(DBG_LEVEL_HCALL, "hcall%u(%lx, %lx, %lx, %lx, %lx, %lx)",
+        HVM_DBG_LOG(DBG_LEVEL_HCALL, "hcall%lu(%lx, %lx, %lx, %lx, %lx, %lx)",
                     eax, rdi, rsi, rdx, r10, r8, r9);
 
 #ifndef NDEBUG
@@ -4330,7 +4392,7 @@ int hvm_do_hypercall(struct cpu_user_regs *regs)
         unsigned int edi = regs->_edi;
         unsigned int ebp = regs->_ebp;
 
-        HVM_DBG_LOG(DBG_LEVEL_HCALL, "hcall%u(%x, %x, %x, %x, %x, %x)", eax,
+        HVM_DBG_LOG(DBG_LEVEL_HCALL, "hcall%lu(%x, %x, %x, %x, %x, %x)", eax,
                     ebx, ecx, edx, esi, edi, ebp);
 
 #ifndef NDEBUG
@@ -4366,7 +4428,7 @@ int hvm_do_hypercall(struct cpu_user_regs *regs)
 #endif
     }
 
-    HVM_DBG_LOG(DBG_LEVEL_HCALL, "hcall%u -> %lx",
+    HVM_DBG_LOG(DBG_LEVEL_HCALL, "hcall%lu -> %lx",
                 eax, (unsigned long)regs->eax);
 
     if ( curr->arch.hvm_vcpu.hcall_preempted )

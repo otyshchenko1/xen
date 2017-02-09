@@ -627,6 +627,7 @@ static void svm_get_segment_register(struct vcpu *v, enum x86_segment seg,
     {
     case x86_seg_cs:
         memcpy(reg, &vmcb->cs, sizeof(*reg));
+        reg->attr.fields.p = 1;
         reg->attr.fields.g = reg->limit > 0xFFFFF;
         break;
     case x86_seg_ds:
@@ -660,13 +661,16 @@ static void svm_get_segment_register(struct vcpu *v, enum x86_segment seg,
     case x86_seg_tr:
         svm_sync_vmcb(v);
         memcpy(reg, &vmcb->tr, sizeof(*reg));
+        reg->attr.fields.p = 1;
         reg->attr.fields.type |= 0x2;
         break;
     case x86_seg_gdtr:
         memcpy(reg, &vmcb->gdtr, sizeof(*reg));
+        reg->attr.bytes = 0x80;
         break;
     case x86_seg_idtr:
         memcpy(reg, &vmcb->idtr, sizeof(*reg));
+        reg->attr.bytes = 0x80;
         break;
     case x86_seg_ldtr:
         svm_sync_vmcb(v);
@@ -1243,17 +1247,14 @@ static void svm_inject_trap(const struct hvm_trap *trap)
     {
     case X86_EVENTTYPE_SW_INTERRUPT: /* int $n */
         /*
-         * Injection type 4 (software interrupt) is only supported with
-         * NextRIP support.  Without NextRIP, the emulator will have performed
-         * DPL and presence checks for us.
+         * Software interrupts (type 4) cannot be properly injected if the
+         * processor doesn't support NextRIP.  Without NextRIP, the emulator
+         * will have performed DPL and presence checks for us, and will have
+         * moved eip forward if appropriate.
          */
         if ( cpu_has_svm_nrips )
-        {
             vmcb->nextrip = regs->eip + _trap.insn_len;
-            event.fields.type = X86_EVENTTYPE_SW_INTERRUPT;
-        }
-        else
-            event.fields.type = X86_EVENTTYPE_HW_EXCEPTION;
+        event.fields.type = X86_EVENTTYPE_SW_INTERRUPT;
         break;
 
     case X86_EVENTTYPE_PRI_SW_EXCEPTION: /* icebp */
@@ -1572,11 +1573,6 @@ static void svm_cpuid_intercept(
     hvm_cpuid(input, eax, ebx, ecx, edx);
 
     switch (input) {
-    case 0x80000001:
-        /* Fix up VLAPIC details. */
-        if ( vlapic_hw_disabled(vcpu_vlapic(v)) )
-            __clear_bit(X86_FEATURE_APIC & 31, edx);
-        break;
     case 0x8000001c: 
     {
         /* LWP capability CPUID */
@@ -1953,26 +1949,28 @@ static int svm_msr_write_intercept(unsigned int msr, uint64_t msr_content)
 
 static void svm_do_msr_access(struct cpu_user_regs *regs)
 {
-    int rc, inst_len;
-    struct vcpu *v = current;
-    struct vmcb_struct *vmcb = v->arch.hvm_svm.vmcb;
-    uint64_t msr_content;
+    struct vcpu *curr = current;
+    bool rdmsr = curr->arch.hvm_svm.vmcb->exitinfo1 == 0;
+    int rc, inst_len = __get_instruction_length(
+        curr, rdmsr ? INSTR_RDMSR : INSTR_WRMSR);
 
-    if ( vmcb->exitinfo1 == 0 )
+    if ( inst_len == 0 )
+        return;
+
+    if ( rdmsr )
     {
-        if ( (inst_len = __get_instruction_length(v, INSTR_RDMSR)) == 0 )
-            return;
-        rc = hvm_msr_read_intercept(regs->ecx, &msr_content);
-        regs->eax = (uint32_t)msr_content;
-        regs->edx = (uint32_t)(msr_content >> 32);
+        uint64_t msr_content = 0;
+
+        rc = hvm_msr_read_intercept(regs->_ecx, &msr_content);
+        if ( rc == X86EMUL_OKAY )
+        {
+            regs->rax = (uint32_t)msr_content;
+            regs->rdx = (uint32_t)(msr_content >> 32);
+        }
     }
     else
-    {
-        if ( (inst_len = __get_instruction_length(v, INSTR_WRMSR)) == 0 )
-            return;
-        msr_content = ((uint64_t)regs->edx << 32) | (uint32_t)regs->eax;
-        rc = hvm_msr_write_intercept(regs->ecx, msr_content, 1);
-    }
+        rc = hvm_msr_write_intercept(regs->_ecx,
+                                     (regs->rdx << 32) | regs->_eax, 1);
 
     if ( rc == X86EMUL_OKAY )
         __update_guest_eip(regs, inst_len);
@@ -2031,7 +2029,7 @@ svm_vmexit_do_vmrun(struct cpu_user_regs *regs,
     if ( !nestedsvm_vmcb_map(v, vmcbaddr) )
     {
         gdprintk(XENLOG_ERR, "VMRUN: mapping vmcb failed, injecting #GP\n");
-        hvm_inject_hw_exception(TRAP_gp_fault, HVM_DELIVER_NO_ERROR_CODE);
+        hvm_inject_hw_exception(TRAP_gp_fault, 0);
         return;
     }
 
@@ -2070,7 +2068,6 @@ svm_vmexit_do_vmload(struct vmcb_struct *vmcb,
                      struct cpu_user_regs *regs,
                      struct vcpu *v, uint64_t vmcbaddr)
 {
-    int ret;
     unsigned int inst_len;
     struct page_info *page;
 
@@ -2080,8 +2077,8 @@ svm_vmexit_do_vmload(struct vmcb_struct *vmcb,
     if ( !nsvm_efer_svm_enabled(v) ) 
     {
         gdprintk(XENLOG_ERR, "VMLOAD: nestedhvm disabled, injecting #UD\n");
-        ret = TRAP_invalid_op;
-        goto inject;
+        hvm_inject_hw_exception(TRAP_invalid_op, HVM_DELIVER_NO_ERROR_CODE);
+        return;
     }
 
     page = nsvm_get_nvmcb_page(v, vmcbaddr);
@@ -2089,8 +2086,8 @@ svm_vmexit_do_vmload(struct vmcb_struct *vmcb,
     {
         gdprintk(XENLOG_ERR,
             "VMLOAD: mapping failed, injecting #GP\n");
-        ret = TRAP_gp_fault;
-        goto inject;
+        hvm_inject_hw_exception(TRAP_gp_fault, 0);
+        return;
     }
 
     svm_vmload_pa(page_to_maddr(page));
@@ -2100,11 +2097,6 @@ svm_vmexit_do_vmload(struct vmcb_struct *vmcb,
     v->arch.hvm_svm.vmcb_in_sync = 0;
 
     __update_guest_eip(regs, inst_len);
-    return;
-
- inject:
-    hvm_inject_hw_exception(ret, HVM_DELIVER_NO_ERROR_CODE);
-    return;
 }
 
 static void
@@ -2112,7 +2104,6 @@ svm_vmexit_do_vmsave(struct vmcb_struct *vmcb,
                      struct cpu_user_regs *regs,
                      struct vcpu *v, uint64_t vmcbaddr)
 {
-    int ret;
     unsigned int inst_len;
     struct page_info *page;
 
@@ -2122,8 +2113,8 @@ svm_vmexit_do_vmsave(struct vmcb_struct *vmcb,
     if ( !nsvm_efer_svm_enabled(v) ) 
     {
         gdprintk(XENLOG_ERR, "VMSAVE: nestedhvm disabled, injecting #UD\n");
-        ret = TRAP_invalid_op;
-        goto inject;
+        hvm_inject_hw_exception(TRAP_invalid_op, HVM_DELIVER_NO_ERROR_CODE);
+        return;
     }
 
     page = nsvm_get_nvmcb_page(v, vmcbaddr);
@@ -2131,18 +2122,13 @@ svm_vmexit_do_vmsave(struct vmcb_struct *vmcb,
     {
         gdprintk(XENLOG_ERR,
             "VMSAVE: mapping vmcb failed, injecting #GP\n");
-        ret = TRAP_gp_fault;
-        goto inject;
+        hvm_inject_hw_exception(TRAP_gp_fault, 0);
+        return;
     }
 
     svm_vmsave_pa(page_to_maddr(page));
     put_page(page);
     __update_guest_eip(regs, inst_len);
-    return;
-
- inject:
-    hvm_inject_hw_exception(ret, HVM_DELIVER_NO_ERROR_CODE);
-    return;
 }
 
 static int svm_is_erratum_383(struct cpu_user_regs *regs)

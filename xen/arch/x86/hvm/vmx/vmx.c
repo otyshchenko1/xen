@@ -1035,10 +1035,12 @@ void vmx_get_segment_register(struct vcpu *v, enum x86_segment seg,
     reg->sel = sel;
     reg->limit = limit;
 
-    reg->attr.bytes = (attr & 0xff) | ((attr >> 4) & 0xf00);
-    /* Unusable flag is folded into Present flag. */
-    if ( attr & (1u<<16) )
-        reg->attr.fields.p = 0;
+    /*
+     * Fold VT-x representation into Xen's representation.  The Present bit is
+     * unconditionally set to the inverse of unusable.
+     */
+    reg->attr.bytes =
+        (!(attr & (1u << 16)) << 7) | (attr & 0x7f) | ((attr >> 4) & 0xf00);
 
     /* Adjust for virtual 8086 mode */
     if ( v->arch.hvm_vmx.vmx_realmode && seg <= x86_seg_tr 
@@ -1118,11 +1120,11 @@ static void vmx_set_segment_register(struct vcpu *v, enum x86_segment seg,
         }
     }
 
-    attr = ((attr & 0xf00) << 4) | (attr & 0xff);
-
-    /* Not-present must mean unusable. */
-    if ( !reg->attr.fields.p )
-        attr |= (1u << 16);
+    /*
+     * Unfold Xen representation into VT-x representation.  The unusable bit
+     * is unconditionally set to the inverse of present.
+     */
+    attr = (!(attr & (1u << 7)) << 16) | ((attr & 0xf00) << 4) | (attr & 0xff);
 
     /* VMX has strict consistency requirement for flag G. */
     attr |= !!(limit >> 20) << 15;
@@ -1496,21 +1498,23 @@ static void vmx_update_guest_cr(struct vcpu *v, unsigned int cr)
             enum x86_segment s; 
             struct segment_register reg[x86_seg_tr + 1];
 
+            BUILD_BUG_ON(x86_seg_tr != x86_seg_gs + 1);
+
             /* Entering or leaving real mode: adjust the segment registers.
              * Need to read them all either way, as realmode reads can update
              * the saved values we'll use when returning to prot mode. */
-            for ( s = x86_seg_cs ; s <= x86_seg_tr ; s++ )
+            for ( s = 0; s < ARRAY_SIZE(reg); s++ )
                 vmx_get_segment_register(v, s, &reg[s]);
             v->arch.hvm_vmx.vmx_realmode = realmode;
             
             if ( realmode )
             {
-                for ( s = x86_seg_cs ; s <= x86_seg_tr ; s++ )
+                for ( s = 0; s < ARRAY_SIZE(reg); s++ )
                     vmx_set_segment_register(v, s, &reg[s]);
             }
             else 
             {
-                for ( s = x86_seg_cs ; s <= x86_seg_tr ; s++ ) 
+                for ( s = 0; s < ARRAY_SIZE(reg); s++ )
                     if ( !(v->arch.hvm_vmx.vm86_segment_mask & (1<<s)) )
                         vmx_set_segment_register(
                             v, s, &v->arch.hvm_vmx.vm86_saved_seg[s]);
@@ -2405,7 +2409,6 @@ static void vmx_cpuid_intercept(
     unsigned int *ecx, unsigned int *edx)
 {
     unsigned int input = *eax;
-    struct segment_register cs;
     struct vcpu *v = current;
 
     hvm_cpuid(input, eax, ebx, ecx, edx);
@@ -2414,8 +2417,7 @@ static void vmx_cpuid_intercept(
     {
         case 0x80000001:
             /* SYSCALL is visible iff running in long mode. */
-            vmx_get_segment_register(v, x86_seg_cs, &cs);
-            if ( cs.attr.fields.l )
+            if ( hvm_long_mode_enabled(v) )
                 *edx |= cpufeat_mask(X86_FEATURE_SYSCALL);
             else
                 *edx &= ~(cpufeat_mask(X86_FEATURE_SYSCALL));
@@ -2432,6 +2434,12 @@ static int vmx_do_cpuid(struct cpu_user_regs *regs)
 {
     unsigned int eax, ebx, ecx, edx;
     unsigned int leaf, subleaf;
+
+    if ( hvm_check_cpuid_faulting(current) )
+    {
+        hvm_inject_hw_exception(TRAP_gp_fault, 0);
+        return 1;  /* Don't advance the guest IP! */
+    }
 
     eax = regs->eax;
     ebx = regs->ebx;
@@ -2699,9 +2707,13 @@ static int vmx_msr_read_intercept(unsigned int msr, uint64_t *msr_content)
         break;
 
     case MSR_INTEL_PLATFORM_INFO:
-        if ( rdmsr_safe(MSR_INTEL_PLATFORM_INFO, *msr_content) )
-            goto gp_fault;
+        *msr_content = MSR_PLATFORM_INFO_CPUID_FAULTING;
+        break;
+
+    case MSR_INTEL_MISC_FEATURES_ENABLES:
         *msr_content = 0;
+        if ( current->arch.cpuid_faulting )
+            *msr_content |= MSR_MISC_FEATURES_CPUID_FAULTING;
         break;
 
     default:
@@ -2903,7 +2915,7 @@ static int vmx_msr_write_intercept(unsigned int msr, uint64_t msr_content)
 
         if ( (rc < 0) ||
              (msr_content && (vmx_add_host_load_msr(msr) < 0)) )
-            hvm_inject_hw_exception(TRAP_machine_check, 0);
+            hvm_inject_hw_exception(TRAP_machine_check, HVM_DELIVER_NO_ERROR_CODE);
         else
             __vmwrite(GUEST_IA32_DEBUGCTL, msr_content);
 
@@ -2928,6 +2940,13 @@ static int vmx_msr_write_intercept(unsigned int msr, uint64_t msr_content)
         if ( msr_content ||
              rdmsr_safe(MSR_INTEL_PLATFORM_INFO, msr_content) )
             goto gp_fault;
+        break;
+
+    case MSR_INTEL_MISC_FEATURES_ENABLES:
+        if ( msr_content & ~MSR_MISC_FEATURES_CPUID_FAULTING )
+            goto gp_fault;
+        v->arch.cpuid_faulting =
+            !!(msr_content & MSR_MISC_FEATURES_CPUID_FAULTING);
         break;
 
     default:
@@ -3096,23 +3115,41 @@ static void vmx_failed_vmentry(unsigned int exit_reason,
     unsigned long exit_qualification;
     struct vcpu *curr = current;
 
-    printk("Failed vm entry (exit reason %#x) ", exit_reason);
+    printk("%pv vmentry failure (reason %#x): ", curr, exit_reason);
     __vmread(EXIT_QUALIFICATION, &exit_qualification);
     switch ( failed_vmentry_reason )
     {
     case EXIT_REASON_INVALID_GUEST_STATE:
-        printk("caused by invalid guest state (%ld).\n", exit_qualification);
+        printk("Invalid guest state (%lu)\n", exit_qualification);
         break;
+
     case EXIT_REASON_MSR_LOADING:
-        printk("caused by MSR entry %ld loading.\n", exit_qualification);
+    {
+        unsigned long idx = exit_qualification - 1;
+        const struct vmx_msr_entry *msr;
+
+        printk("MSR loading (entry %lu)\n", idx);
+
+        if ( idx >= (PAGE_SIZE / sizeof(*msr)) )
+            printk("  Entry out of range\n");
+        else
+        {
+            msr = &curr->arch.hvm_vmx.msr_area[idx];
+
+            printk("  msr %08x val %016"PRIx64" (mbz %#x)\n",
+                   msr->index, msr->data, msr->mbz);
+        }
         break;
+    }
+
     case EXIT_REASON_MCE_DURING_VMENTRY:
-        printk("caused by machine check.\n");
+        printk("MCE\n");
         HVMTRACE_0D(MCE);
         /* Already handled. */
         break;
+
     default:
-        printk("reason not known yet!");
+        printk("Unknown\n");
         break;
     }
 

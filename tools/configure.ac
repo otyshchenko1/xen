@@ -173,6 +173,8 @@ AS_IF([test "x$enable_rombios" = "xyes"], [
     AX_PATH_PROG_OR_FAIL([AS86], [as86])
     AX_PATH_PROG_OR_FAIL([LD86], [ld86])
     AX_PATH_PROG_OR_FAIL([BCC], [bcc])
+    AC_CHECK_LIB([lzma], [lzma_version_number], [],
+        [AC_MSG_ERROR([Could not find lzma, needed to build rombios])])
     AC_DEFINE([HAVE_ROMBIOS], [1], [ROMBIOS enabled])
     rombios=y],[
     rombios=n
@@ -373,7 +375,6 @@ AS_IF([test "x$enable_blktap2" = "xyes"], [
 AC_CHECK_LIB([aio], [io_setup], [], [AC_MSG_ERROR([Could not find libaio])])
 ])
 AC_SUBST(system_aio)
-AC_CHECK_LIB([crypto], [MD5], [], [AC_MSG_ERROR([Could not find libcrypto])])
 AX_CHECK_EXTFS
 AC_CHECK_LIB([gcrypt], [gcry_md_hash_buffer], [libgcrypt="y"], [libgcrypt="n"])
 AC_SUBST(libgcrypt)

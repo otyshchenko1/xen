@@ -17,9 +17,9 @@
 #include <getopt.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(CONFIG_X86)
 #include <xen/hvm/hvm_info_table.h>
-#elif defined(__aarch64__)
+#elif defined(CONFIG_ARM_64)
 #include <xen/arch-arm.h>
 #endif
 
@@ -108,12 +108,12 @@ static struct option options[] = {
 
 int main(int argc, char **argv)
 {
-    unsigned int slot, cpu, max_cpus;
+    unsigned int slot, dev, intx, link, cpu, max_cpus;
     dm_version dm_version = QEMU_XEN_TRADITIONAL;
 
-#if defined(__i386__) || defined(__x86_64__)
+#if defined(CONFIG_X86)
     max_cpus = HVM_MAX_VCPUS;
-#elif defined(__aarch64__)
+#elif defined(CONFIG_ARM_64)
     max_cpus = GUEST_MAX_VCPUS;
 #endif
 
@@ -169,7 +169,7 @@ int main(int argc, char **argv)
     /**** Processor start ****/
     push_block("Scope", "\\_SB");
 
-#if defined(__i386__) || defined(__x86_64__)
+#ifdef CONFIG_X86
     /* MADT checksum */
     stmt("OperationRegion", "MSUM, SystemMemory, \\_SB.MSUA, 1");
     push_block("Field", "MSUM, ByteAcc, NoLock, Preserve");
@@ -193,7 +193,7 @@ int main(int argc, char **argv)
         stmt("Name", "_HID, \"ACPI0007\"");
 
         stmt("Name", "_UID, %d", cpu);
-#if defined(__aarch64__)
+#ifdef CONFIG_ARM_64
         pop_block();
         continue;
 #endif
@@ -235,7 +235,7 @@ int main(int argc, char **argv)
         pop_block();
     }
 
-#if defined(__aarch64__)
+#ifdef CONFIG_ARM_64
     pop_block();
     /**** Processor end ****/
     pop_block();
@@ -317,6 +317,72 @@ int main(int argc, char **argv)
                  "}");
         }
     } pop_block();
+
+    /*** PCI-ISA link definitions ***/
+    /* BUFA: List of ISA IRQs available for linking to PCI INTx. */
+    stmt("Name", "BUFA, ResourceTemplate() { "
+         "IRQ(Level, ActiveLow, Shared) { 5, 10, 11 } }");
+    /* BUFB: IRQ descriptor for returning from link-device _CRS methods. */
+    stmt("Name", "BUFB, Buffer() { "
+         "0x23, 0x00, 0x00, 0x18, " /* IRQ descriptor */
+         "0x79, 0 }");              /* End tag, null checksum */
+    stmt("CreateWordField", "BUFB, 0x01, IRQV");
+    /* Create four PCI-ISA link devices: LNKA, LNKB, LNKC, LNKD. */
+    for ( link = 0; link < 4; link++ )
+    {
+        push_block("Device", "LNK%c", 'A'+link);
+        stmt("Name", "_HID,  EISAID(\"PNP0C0F\")");  /* PCI interrupt link */
+        stmt("Name", "_UID, %u", link+1);
+        push_block("Method", "_STA, 0");
+        push_block("If", "And(PIR%c, 0x80)", 'A'+link);
+        stmt("Return", "0x09");
+        pop_block();
+        push_block("Else", NULL);
+        stmt("Return", "0x0B");
+        pop_block();
+        pop_block();
+        push_block("Method", "_PRS");
+        stmt("Return", "BUFA");
+        pop_block();
+        push_block("Method", "_DIS");
+        stmt("Or", "PIR%c, 0x80, PIR%c", 'A'+link, 'A'+link);
+        pop_block();
+        push_block("Method", "_CRS");
+        stmt("And", "PIR%c, 0x0f, Local0", 'A'+link);
+        stmt("ShiftLeft", "0x1, Local0, IRQV");
+        stmt("Return", "BUFB");
+        pop_block();
+        push_block("Method", "_SRS, 1");
+        stmt("CreateWordField", "ARG0, 0x01, IRQ1");
+        stmt("FindSetRightBit", "IRQ1, Local0");
+        stmt("Decrement", "Local0");
+        stmt("Store", "Local0, PIR%c", 'A'+link);
+        pop_block();
+        pop_block();
+    }
+
+    /*** PCI interrupt routing definitions***/
+    /* _PRT: Method to return routing table. */
+    push_block("Method", "_PRT, 0");
+    push_block("If", "PICD");
+    stmt("Return", "PRTA");
+    pop_block();
+    stmt("Return", "PRTP");
+    pop_block();
+    /* PRTP: PIC routing table (via ISA links). */
+    printf("Name(PRTP, Package() {\n");
+    for ( dev = 1; dev < 32; dev++ )
+        for ( intx = 0; intx < 4; intx++ ) /* INTA-D */
+            printf("Package(){0x%04xffff, %u, \\_SB.PCI0.LNK%c, 0},\n",
+                   dev, intx, 'A'+((dev+intx)&3));
+    printf("})\n");
+    /* PRTA: APIC routing table (via non-legacy IOAPIC GSIs). */
+    printf("Name(PRTA, Package() {\n");
+    for ( dev = 1; dev < 32; dev++ )
+        for ( intx = 0; intx < 4; intx++ ) /* INTA-D */
+            printf("Package(){0x%04xffff, %u, 0, %u},\n",
+                   dev, intx, ((dev*4+dev/8+intx)&31)+16);
+    printf("})\n");
 
     /*
      * Each PCI hotplug slot needs at least two methods to handle

@@ -16,8 +16,9 @@ or       = $(if $(strip $(1)),$(1),$(if $(strip $(2)),$(2),$(if $(strip $(3)),$(
 
 -include $(XEN_ROOT)/.config
 
-# A debug build of Xen and tools?
-debug ?= y
+# A debug build of tools?
+# Hypervisor debug build is controlled by Kconfig.
+debug ?= n
 debug_symbols ?= $(debug)
 
 XEN_COMPILE_ARCH    ?= $(shell uname -m | sed -e s/i.86/x86_32/ \
@@ -276,21 +277,19 @@ SEABIOS_UPSTREAM_URL ?= git://xenbits.xen.org/seabios.git
 MINIOS_UPSTREAM_URL ?= git://xenbits.xen.org/mini-os.git
 endif
 OVMF_UPSTREAM_REVISION ?= bc54e50e0fe03c570014f363b547426913e92449
-QEMU_UPSTREAM_REVISION ?= qemu-xen-4.8.0-rc1
-MINIOS_UPSTREAM_REVISION ?= xen-4.8.0-rc1
+QEMU_UPSTREAM_REVISION ?= qemu-xen-4.8.0
+MINIOS_UPSTREAM_REVISION ?= xen-RELEASE-4.8.0
 # Wed Sep 28 11:50:04 2016 +0200
 # minios: fix build issue with xen_*mb defines
 
-SEABIOS_UPSTREAM_REVISION ?= rel-1.9.3
+SEABIOS_UPSTREAM_REVISION ?= rel-1.10.0
 # Wed Jun 22 14:53:24 2016 +0800
 # fw/msr_feature_control: add support to set MSR_IA32_FEATURE_CONTROL
 
 ETHERBOOT_NICS ?= rtl8139 8086100e
 
 
-QEMU_TRADITIONAL_REVISION ?= xen-4.8.0-rc1
-# Tue Jul 26 15:31:59 2016 +0100
-# virtio: error out if guest exceeds virtqueue size
+QEMU_TRADITIONAL_REVISION ?= xen-4.8.0
 
 # Specify which qemu-dm to use. This may be `ioemu' to use the old
 # Mercurial in-tree version, or a local directory, or a git URL.

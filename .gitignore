@@ -168,6 +168,7 @@ tools/hotplug/Linux/xen-hotplug-common.sh
 tools/hotplug/Linux/xendomains
 tools/hotplug/NetBSD/rc.d/xencommons
 tools/hotplug/NetBSD/rc.d/xendriverdomain
+tools/include/acpi
 tools/include/xen/*
 tools/include/xen-xsm/*
 tools/include/xen-foreign/*.(c|h|size)
@@ -284,6 +285,8 @@ xen/xsm/flask/include/av_permissions.h
 xen/xsm/flask/include/class_to_string.h
 xen/xsm/flask/include/flask.h
 xen/xsm/flask/include/initial_sid_to_string.h
+xen/xsm/flask/policy.*
+xen/xsm/flask/xenpolicy-*
 tools/flask/policy/policy.conf
 tools/flask/policy/xenpolicy-*
 xen/xen

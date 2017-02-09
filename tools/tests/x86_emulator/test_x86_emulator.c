@@ -8,8 +8,6 @@
 #include <xen/xen.h>
 #include <sys/mman.h>
 
-#define __packed __attribute__((packed))
-
 #include "x86_emulate/x86_emulate.h"
 #include "blowfish.h"
 
@@ -433,6 +431,22 @@ int main(int argc, char **argv)
         goto fail;
     printf("okay\n");
 
+#ifdef __x86_64__
+    printf("%-40s", "Testing btcq %r8,(%r11)...");
+    instr[0] = 0x4d; instr[1] = 0x0f; instr[2] = 0xbb; instr[3] = 0x03;
+    regs.eflags = 0x200;
+    regs.rip    = (unsigned long)&instr[0];
+    regs.r8     = (-1L << 40) + 1;
+    regs.r11    = (unsigned long)(res + (1L << 35));
+    rc = x86_emulate(&ctxt, &emulops);
+    if ( (rc != X86EMUL_OKAY) ||
+         (*res != 0x2233445C) ||
+         (regs.eflags != 0x201) ||
+         (regs.rip != (unsigned long)&instr[4]) )
+        goto fail;
+    printf("okay\n");
+#endif
+
     res[0] = 0x12345678;
     res[1] = 0x87654321;
 
@@ -655,6 +669,21 @@ int main(int argc, char **argv)
     printf("okay\n");
 #else
     printf("skipped\n");
+
+    printf("%-40s", "Testing cmovz %ecx,%eax...");
+    instr[0] = 0x0f; instr[1] = 0x44; instr[2] = 0xc1;
+    regs.eflags = 0x200;
+    regs.eip    = (unsigned long)&instr[0];
+    regs.rax    = 0x1111111122222222;
+    regs.rcx    = 0x3333333344444444;
+    rc = x86_emulate(&ctxt, &emulops);
+    if ( (rc != X86EMUL_OKAY) ||
+         (regs.rax != 0x0000000022222222) ||
+         (regs.rcx != 0x3333333344444444) ||
+         (regs.eflags != 0x200) ||
+         (regs.eip != (unsigned long)&instr[3]) )
+        goto fail;
+    printf("okay\n");
 #endif
 
     printf("%-40s", "Testing movbe (%%ecx),%%eax...");

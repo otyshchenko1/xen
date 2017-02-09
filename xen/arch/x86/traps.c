@@ -928,6 +928,11 @@ int cpuid_hypervisor_leaves( uint32_t idx, uint32_t sub_idx,
         break;
 
     case 4:
+        if ( !has_hvm_container_domain(currd) )
+        {
+            *eax = *ebx = *ecx = *edx = 0;
+            break;
+        }
         hvm_hypervisor_cpuid_leaf(sub_idx, eax, ebx, ecx, edx);
         break;
 
@@ -1320,6 +1325,15 @@ static int emulate_forced_invalid_op(struct cpu_user_regs *regs)
     }
     if ( memcmp(instr, "\xf\xa2", sizeof(instr)) )
         return 0;
+
+    /* If cpuid faulting is enabled and CPL>0 inject a #GP in place of #UD. */
+    if ( current->arch.cpuid_faulting && !guest_kernel_mode(current, regs) )
+    {
+        regs->eip = eip;
+        do_guest_trap(TRAP_gp_fault, regs);
+        return EXCRET_fault_fixed;
+    }
+
     eip += sizeof(instr);
 
     pv_cpuid(regs);
@@ -2479,6 +2493,17 @@ static int priv_op_read_msr(unsigned int reg, uint64_t *val,
              rdmsr_safe(MSR_INTEL_PLATFORM_INFO, *val) )
             break;
         *val = 0;
+        if ( this_cpu(cpuid_faulting_enabled) )
+            *val |= MSR_PLATFORM_INFO_CPUID_FAULTING;
+        return X86EMUL_OKAY;
+
+    case MSR_INTEL_MISC_FEATURES_ENABLES:
+        if ( boot_cpu_data.x86_vendor != X86_VENDOR_INTEL ||
+             rdmsr_safe(MSR_INTEL_MISC_FEATURES_ENABLES, *val) )
+            break;
+        *val = 0;
+        if ( curr->arch.cpuid_faulting )
+            *val |= MSR_MISC_FEATURES_CPUID_FAULTING;
         return X86EMUL_OKAY;
 
     case MSR_P6_PERFCTR(0)...MSR_P6_PERFCTR(7):
@@ -2540,21 +2565,21 @@ static int priv_op_write_msr(unsigned int reg, uint64_t val,
         int rc;
 
     case MSR_FS_BASE:
-        if ( is_pv_32bit_domain(currd) )
+        if ( is_pv_32bit_domain(currd) || !is_canonical_address(val) )
             break;
         wrfsbase(val);
         curr->arch.pv_vcpu.fs_base = val;
         return X86EMUL_OKAY;
 
     case MSR_GS_BASE:
-        if ( is_pv_32bit_domain(currd) )
+        if ( is_pv_32bit_domain(currd) || !is_canonical_address(val) )
             break;
         wrgsbase(val);
         curr->arch.pv_vcpu.gs_base_kernel = val;
         return X86EMUL_OKAY;
 
     case MSR_SHADOW_GS_BASE:
-        if ( is_pv_32bit_domain(currd) ||
+        if ( is_pv_32bit_domain(currd) || !is_canonical_address(val) ||
              wrmsr_safe(MSR_SHADOW_GS_BASE, val) )
             break;
         curr->arch.pv_vcpu.gs_base_user = val;
@@ -2682,6 +2707,17 @@ static int priv_op_write_msr(unsigned int reg, uint64_t val,
             break;
         return X86EMUL_OKAY;
 
+    case MSR_INTEL_MISC_FEATURES_ENABLES:
+        if ( boot_cpu_data.x86_vendor != X86_VENDOR_INTEL ||
+             (val & ~MSR_MISC_FEATURES_CPUID_FAULTING) ||
+             rdmsr_safe(MSR_INTEL_MISC_FEATURES_ENABLES, temp) )
+            break;
+        if ( (val & MSR_MISC_FEATURES_CPUID_FAULTING) &&
+             !this_cpu(cpuid_faulting_enabled) )
+            break;
+        curr->arch.cpuid_faulting = !!(val & MSR_MISC_FEATURES_CPUID_FAULTING);
+        return X86EMUL_OKAY;
+
     case MSR_P6_PERFCTR(0)...MSR_P6_PERFCTR(7):
     case MSR_P6_EVNTSEL(0)...MSR_P6_EVNTSEL(3):
     case MSR_CORE_PERF_FIXED_CTR0...MSR_CORE_PERF_FIXED_CTR2:
@@ -2722,6 +2758,24 @@ static int priv_op_write_msr(unsigned int reg, uint64_t val,
     }
 
     return X86EMUL_UNHANDLEABLE;
+}
+
+int pv_emul_cpuid(unsigned int *eax, unsigned int *ebx, unsigned int *ecx,
+                  unsigned int *edx, struct x86_emulate_ctxt *ctxt)
+{
+    struct cpu_user_regs regs = *ctxt->regs;
+
+    regs._eax = *eax;
+    regs._ecx = *ecx;
+
+    pv_cpuid(&regs);
+
+    *eax = regs._eax;
+    *ebx = regs._ebx;
+    *ecx = regs._ecx;
+    *edx = regs._edx;
+
+    return X86EMUL_OKAY;
 }
 
 /* Instruction fetch with error handling. */
@@ -3191,6 +3245,10 @@ static int emulate_privileged_op(struct cpu_user_regs *regs)
         break;
 
     case 0xa2: /* CPUID */
+        /* If cpuid faulting is enabled and CPL>0 leave the #GP untouched. */
+        if ( v->arch.cpuid_faulting && !guest_kernel_mode(v, regs) )
+            goto fail;
+
         pv_cpuid(regs);
         break;
 
@@ -3729,7 +3787,11 @@ void async_exception_cleanup(struct vcpu *curr)
             if ( (curr->async_exception_mask ^
                   curr->async_exception_state(trap).old_mask) == (1 << trap) )
                 break;
-    ASSERT(trap <= VCPU_TRAP_LAST);
+    if ( unlikely(trap > VCPU_TRAP_LAST) )
+    {
+        ASSERT_UNREACHABLE();
+        return;
+    }
 
     /* Restore previous asynchronous exception mask. */
     curr->async_exception_mask = curr->async_exception_state(trap).old_mask;

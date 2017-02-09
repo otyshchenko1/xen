@@ -29,11 +29,11 @@ struct x86_emulate_ctxt;
 
 /* Comprehensive enumeration of x86 segment registers. */
 enum x86_segment {
-    /* General purpose. */
+    /* General purpose.  Matches the SReg3 encoding in opcode/ModRM bytes. */
+    x86_seg_es,
     x86_seg_cs,
     x86_seg_ss,
     x86_seg_ds,
-    x86_seg_es,
     x86_seg_fs,
     x86_seg_gs,
     /* System. */
@@ -71,7 +71,7 @@ enum x86_swint_emulation {
  * Attribute for segment selector. This is a copy of bit 40:47 & 52:55 of the
  * segment descriptor. It happens to match the format of an AMD SVM VMCB.
  */
-typedef union __packed segment_attributes {
+typedef union __attribute__((__packed__)) segment_attributes {
     uint16_t bytes;
     struct
     {
@@ -91,7 +91,7 @@ typedef union __packed segment_attributes {
  * Full state of a segment register (visible and hidden portions).
  * Again, this happens to match the format of an AMD SVM VMCB.
  */
-struct __packed segment_register {
+struct __attribute__((__packed__)) segment_register {
     uint16_t   sel;
     segment_attributes_t attr;
     uint32_t   limit;
@@ -352,7 +352,12 @@ struct x86_emulate_ops
     int (*wbinvd)(
         struct x86_emulate_ctxt *ctxt);
 
-    /* cpuid: Emulate CPUID via given set of EAX-EDX inputs/outputs. */
+    /*
+     * cpuid: Emulate CPUID via given set of EAX-EDX inputs/outputs.
+     *
+     * May return X86EMUL_EXCEPTION, which causes the emulator to inject
+     * #GP[0].  Used to implement CPUID faulting.
+     */
     int (*cpuid)(
         unsigned int *eax,
         unsigned int *ebx,

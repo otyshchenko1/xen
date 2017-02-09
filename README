@@ -1,9 +1,9 @@
 #################################
-__  __            _  _    ___   ___
-\ \/ /___ _ __   | || |  ( _ ) / _ \       _ __ ___
- \  // _ \ '_ \  | || |_ / _ \| | | |_____| '__/ __|
- /  \  __/ | | | |__   _| (_) | |_| |_____| | | (__
-/_/\_\___|_| |_|    |_|(_)___(_)___/      |_|  \___|
+__  __            _  _    ___
+\ \/ /___ _ __   | || |  ( _ )
+ \  // _ \ '_ \  | || |_ / _ \
+ /  \  __/ | | | |__   _| (_) |
+/_/\_\___|_| |_|    |_|(_)___/
 
 #################################
 
@@ -82,6 +82,7 @@ disabled at compile time:
       information.
     * 16-bit x86 assembler, loader and compiler for qemu-traditional / rombios
       (dev86 rpm or bin86 & bcc debs)
+    * Development install of liblzma for rombios
 
 Second, you need to acquire a suitable kernel for use in domain 0. If
 possible you should use a kernel provided by your OS distributor. If
