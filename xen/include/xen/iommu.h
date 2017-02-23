@@ -56,7 +56,7 @@ int iommu_setup(void);
 int iommu_add_device(struct pci_dev *pdev);
 int iommu_enable_device(struct pci_dev *pdev);
 int iommu_remove_device(struct pci_dev *pdev);
-int iommu_domain_init(struct domain *d);
+int iommu_domain_init(struct domain *d, bool use_iommu);
 void iommu_hwdom_init(struct domain *d);
 void iommu_domain_destroy(struct domain *d);
 int deassign_device(struct domain *d, u16 seg, u8 bus, u8 devfn);
@@ -155,7 +155,7 @@ struct page_info;
 typedef int iommu_grdm_t(xen_pfn_t start, xen_ulong_t nr, u32 id, void *ctxt);
 
 struct iommu_ops {
-    int (*init)(struct domain *d);
+    int (*init)(struct domain *d, bool use_iommu);
     void (*hwdom_init)(struct domain *d);
     int (*add_device)(u8 devfn, device_t *dev);
     int (*enable_device)(device_t *dev);
