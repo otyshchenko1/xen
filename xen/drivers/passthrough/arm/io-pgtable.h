@@ -82,6 +82,10 @@ struct io_pgtable_cfg {
 	const struct iommu_gather_ops	*tlb;
 	struct device			*iommu_dev;
 
+	/* For test purposes */
+	int						page_count;
+	struct domain			*d;
+
 	/* Low-level data specific to the table format */
 	union {
 		struct {

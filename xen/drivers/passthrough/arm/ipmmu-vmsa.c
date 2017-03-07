@@ -652,6 +652,10 @@ static int ipmmu_domain_init_context(struct ipmmu_vmsa_domain *domain)
 	 */
 	domain->cfg.iommu_dev = domain->root->dev;
 
+	/* For test purposes */
+	domain->cfg.page_count = 0;
+	domain->cfg.d = domain->d;
+
 	domain->iop = alloc_io_pgtable_ops(ARM_32_LPAE_S1, &domain->cfg,
 					   domain);
 	if (!domain->iop)
@@ -2167,6 +2171,24 @@ static int __must_check ipmmu_vmsa_map_pages(struct domain *d, unsigned long gfn
 	ret = ipmmu_map(xen_domain->base_context, pfn_to_paddr(gfn),
 			pfn_to_paddr(mfn), size, prot);
 
+#if 0
+	/* For test purposes */
+	if (!ret) {
+		unsigned long i;
+
+		for (i = 0; i < page_count; i ++) {
+			phys_addr_t paddr = ipmmu_iova_to_phys(xen_domain->base_context,
+					pfn_to_paddr(gfn + i));
+			if (!paddr || paddr != pfn_to_paddr(mfn + i)) {
+				printk("d%d: after mapping check gfn %#lx to mfn %#lx failed (iter %lu paddr 0x%"PRIx64")\n",
+						d->domain_id, gfn + i, mfn + i, i, paddr);
+				/*ret = -1;
+				break;*/
+			}
+		}
+	}
+#endif
+
 	spin_unlock(&xen_domain->lock);
 
 	return ret;
@@ -2191,6 +2213,24 @@ static int __must_check ipmmu_vmsa_unmap_pages(struct domain *d, unsigned long g
 	ret = ipmmu_unmap(xen_domain->base_context, pfn_to_paddr(gfn), size);
 	if (ret == size)
 		ret = 0;
+
+#if 0
+	/* For test purposes */
+	if (!ret) {
+		unsigned long i;
+
+		for (i = 0; i < page_count; i ++) {
+			phys_addr_t paddr = ipmmu_iova_to_phys(xen_domain->base_context,
+					pfn_to_paddr(gfn + i));
+			if (paddr || paddr == pfn_to_paddr(gfn + i)) {
+				printk("d%d: after unmapping check gfn %#lx failed (iter %lu)\n",
+					d->domain_id, gfn + i, i);
+				/*ret = -1;
+				break;*/
+			}
+		}
+	}
+#endif
 
 	spin_unlock(&xen_domain->lock);
 

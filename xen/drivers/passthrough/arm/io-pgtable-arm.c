@@ -240,9 +240,44 @@ struct arm_lpae_io_pgtable {
 
 	/* Xen: We deal with domain pages. */
 	struct page_info	*pgd;
+
+	/* For test purposes */
+	void *map_va[128];
+	int map_count;
 };
 
 typedef u64 arm_lpae_iopte;
+
+/* For test purposes */
+static void *map_domain_page_test(struct arm_lpae_io_pgtable *data,
+		struct page_info *page)
+{
+	/*void *va = ioremap_nocache(page_to_maddr(page), PAGE_SIZE);*/
+	void *va = __map_domain_page(page);
+
+	data->map_va[data->map_count] = va;
+	data->map_count ++;
+
+	return va;
+}
+
+static void unmap_domain_page_test(struct arm_lpae_io_pgtable *data, void *va)
+{
+	struct io_pgtable_cfg *cfg = &data->iop.cfg;
+
+	ASSERT(data->map_count);
+
+	data->map_count --;
+
+	/*iounmap(va);*/
+	unmap_domain_page(va);
+
+	if (data->map_va[data->map_count] != va)
+		printk("d%d: Unmap page[%d]: map_va %p va %p\n",
+				cfg->d->domain_id, data->map_count, data->map_va[data->map_count], va);
+
+	data->map_va[data->map_count] = NULL;
+}
 
 /*
  * Xen: Overwrite Linux functions that are in charge of memory
@@ -325,8 +360,13 @@ static struct page_info *__arm_lpae_alloc_pages(size_t size, gfp_t gfp,
 	if (pages == NULL)
 		return NULL;
 
+	cfg->page_count += (1<<order);
+
 	for (i = 0; i < (1<<order); i ++)
 		clear_and_clean_page(pages + i);
+
+	printk("d%d: Alloc pages[%d]: order %u page %p maddr 0x%"PRIx64"\n",
+			cfg->d->domain_id, cfg->page_count, order, pages, page_to_maddr(pages));
 
 	return pages;
 }
@@ -335,6 +375,11 @@ static void __arm_lpae_free_pages(struct page_info *pages, size_t size,
 				  struct io_pgtable_cfg *cfg)
 {
 	unsigned int order = get_order_from_bytes(size);
+
+	cfg->page_count -= (1<<order);
+
+	printk("d%d: Free pages[%d]: order %u page %p maddr 0x%"PRIx64"\n",
+			cfg->d->domain_id, cfg->page_count, order, pages, page_to_maddr(pages));
 
 	free_domheap_pages(pages, order);
 }
@@ -440,9 +485,9 @@ static int __arm_lpae_map(struct arm_lpae_io_pgtable *data, unsigned long iova,
 	}
 
 	/* Rinse, repeat */
-	cptep = __map_domain_page(page);
+	cptep = map_domain_page_test(data, page);
 	ret = __arm_lpae_map(data, iova, paddr, size, prot, lvl + 1, cptep);
-	unmap_domain_page(cptep);
+	unmap_domain_page_test(data, cptep);
 	return ret;
 }
 
@@ -492,16 +537,19 @@ static int arm_lpae_map(struct io_pgtable_ops *ops, unsigned long iova,
 	arm_lpae_iopte *ptep;
 	int ret, lvl = ARM_LPAE_START_LVL(data);
 	arm_lpae_iopte prot;
+	struct io_pgtable_cfg *cfg = &data->iop.cfg;
 
 	/* If no access, then nothing to do */
 	if (!(iommu_prot & (IOMMU_READ | IOMMU_WRITE)))
 		return 0;
 
 	prot = arm_lpae_prot_to_pte(data, iommu_prot);
-	ptep = __map_domain_page(data->pgd);
+	ptep = map_domain_page_test(data, data->pgd);
 	ret = __arm_lpae_map(data, iova, paddr, size, prot, lvl, ptep);
-	unmap_domain_page(ptep);
+	unmap_domain_page_test(data, ptep);
 
+	if (data->map_count)
+		printk("d%d: Map count > 0 after map: %d\n", cfg->d->domain_id, data->map_count);
 	/*
 	 * Synchronise all PTE updates for the new mapping before there's
 	 * a chance for anything to kick off a table walk for the new iova.
@@ -517,7 +565,7 @@ static void __arm_lpae_free_pgtable(struct arm_lpae_io_pgtable *data, int lvl,
 {
 	arm_lpae_iopte *start, *end;
 	unsigned long table_size;
-	arm_lpae_iopte *ptep = __map_domain_page(page);
+	arm_lpae_iopte *ptep = map_domain_page_test(data, page);
 
 	if (lvl == ARM_LPAE_START_LVL(data))
 		table_size = data->pgd_size;
@@ -541,15 +589,21 @@ static void __arm_lpae_free_pgtable(struct arm_lpae_io_pgtable *data, int lvl,
 		__arm_lpae_free_pgtable(data, lvl + 1, iopte_deref(pte, data));
 	}
 
-	unmap_domain_page(start);
+	unmap_domain_page_test(data, start);
+
 	__arm_lpae_free_pages(page, table_size, &data->iop.cfg);
 }
 
 static void arm_lpae_free_pgtable(struct io_pgtable *iop)
 {
 	struct arm_lpae_io_pgtable *data = io_pgtable_to_data(iop);
+	struct io_pgtable_cfg *cfg = &data->iop.cfg;
 
 	__arm_lpae_free_pgtable(data, ARM_LPAE_START_LVL(data), data->pgd);
+
+	if (cfg->page_count)
+		printk("d%d: Page count > 0 after free: %d\n", cfg->d->domain_id, cfg->page_count);
+
 	kfree(data);
 }
 
@@ -651,9 +705,9 @@ static int __arm_lpae_unmap(struct arm_lpae_io_pgtable *data,
 	}
 
 	/* Keep on walkin' */
-	ptep = __map_domain_page(iopte_deref(pte, data));
+	ptep = map_domain_page_test(data, iopte_deref(pte, data));
 	ret = __arm_lpae_unmap(data, iova, size, lvl + 1, ptep);
-	unmap_domain_page(ptep);
+	unmap_domain_page_test(data, ptep);
 	return ret;
 }
 
@@ -663,13 +717,17 @@ static int arm_lpae_unmap(struct io_pgtable_ops *ops, unsigned long iova,
 {
 	size_t unmapped;
 	struct arm_lpae_io_pgtable *data = io_pgtable_ops_to_data(ops);
-	arm_lpae_iopte *ptep = __map_domain_page(data->pgd);
+	arm_lpae_iopte *ptep = map_domain_page_test(data, data->pgd);
 	int lvl = ARM_LPAE_START_LVL(data);
+	struct io_pgtable_cfg *cfg = &data->iop.cfg;
 
 	unmapped = __arm_lpae_unmap(data, iova, size, lvl, ptep);
 	if (unmapped)
 		io_pgtable_tlb_sync(&data->iop);
-	unmap_domain_page(ptep);
+	unmap_domain_page_test(data, ptep);
+
+	if (data->map_count)
+		printk("d%d: Map count > 0 after unmap: %d\n", cfg->d->domain_id, data->map_count);
 
 	/* Xen: Add barrier here to synchronise all PTE updates. */
 	smp_wmb();
@@ -682,7 +740,7 @@ static phys_addr_t arm_lpae_iova_to_phys(struct io_pgtable_ops *ops,
 					 unsigned long iova)
 {
 	struct arm_lpae_io_pgtable *data = io_pgtable_ops_to_data(ops);
-	arm_lpae_iopte pte, *ptep = __map_domain_page(data->pgd);
+	arm_lpae_iopte pte, *ptep = map_domain_page_test(data, data->pgd);
 	int lvl = ARM_LPAE_START_LVL(data);
 
 	do {
@@ -692,7 +750,7 @@ static phys_addr_t arm_lpae_iova_to_phys(struct io_pgtable_ops *ops,
 
 		/* Grab the IOPTE we're interested in */
 		pte = *(ptep + ARM_LPAE_LVL_IDX(iova, lvl, data));
-		unmap_domain_page(ptep);
+		unmap_domain_page_test(data, ptep);
 
 		/* Valid entry? */
 		if (!pte)
@@ -703,10 +761,10 @@ static phys_addr_t arm_lpae_iova_to_phys(struct io_pgtable_ops *ops,
 			goto found_translation;
 
 		/* Take it to the next level */
-		ptep = __map_domain_page(iopte_deref(pte, data));
+		ptep = map_domain_page_test(data, iopte_deref(pte, data));
 	} while (++lvl < ARM_LPAE_MAX_LEVELS);
 
-	unmap_domain_page(ptep);
+	unmap_domain_page_test(data, ptep);
 	/* Ran out of page tables to walk */
 	return 0;
 
@@ -872,6 +930,10 @@ arm_64_lpae_alloc_pgtable_s1(struct io_pgtable_cfg *cfg, void *cookie)
 	data->pgd = __arm_lpae_alloc_pages(data->pgd_size, GFP_KERNEL, cfg);
 	if (!data->pgd)
 		goto out_free_data;
+
+	/* For test purposes */
+	memset(data->map_va, 0x00, sizeof(data->map_va));
+	data->map_count = 0;
 
 	/* Ensure the empty pgd is visible before any actual TTBR write */
 	smp_wmb();
