@@ -239,8 +239,6 @@ struct ipmmu_vmsa_device {
 #if 0 /* Xen: Not needed */
 	struct dma_iommu_mapping *mapping;
 #endif
-
-	bool disabled;
 };
 
 struct ipmmu_vmsa_domain {
@@ -504,36 +502,12 @@ static void ipmmu_ctx_write2(struct ipmmu_vmsa_domain *domain, unsigned int reg,
 	struct ipmmu_vmsa_xen_domain *xen_domain = dom_iommu(domain->d)->arch.priv;
 	struct iommu_domain *io_domain;
 
-	list_for_each_entry(io_domain, &xen_domain->contexts, list) {
-		if (!to_vmsa_domain(io_domain)->mmu->disabled)
-			ipmmu_ctx_write1(to_vmsa_domain(io_domain), reg, data);
-	}
+	list_for_each_entry(io_domain, &xen_domain->contexts, list)
+		ipmmu_ctx_write1(to_vmsa_domain(io_domain), reg, data);
 
 	ipmmu_ctx_write(domain, reg, data);
 }
 
-static void ipmmu_ctx_enable(struct ipmmu_vmsa_domain *domain)
-{
-	struct ipmmu_vmsa_xen_domain *xen_domain = dom_iommu(domain->d)->arch.priv;
-	struct iommu_domain *io_domain;
-
-	list_for_each_entry(io_domain, &xen_domain->contexts, list) {
-		to_vmsa_domain(io_domain)->mmu->disabled = false;
-		ipmmu_ctx_write1(to_vmsa_domain(io_domain), IMCTR,
-				ipmmu_ctx_read(domain, IMCTR) | IMCTR_FLUSH);
-	}
-}
-
-static void ipmmu_ctx_disable(struct ipmmu_vmsa_domain *domain)
-{
-	struct ipmmu_vmsa_xen_domain *xen_domain = dom_iommu(domain->d)->arch.priv;
-	struct iommu_domain *io_domain;
-
-	list_for_each_entry(io_domain, &xen_domain->contexts, list) {
-		to_vmsa_domain(io_domain)->mmu->disabled = true;
-		ipmmu_ctx_write1(to_vmsa_domain(io_domain), IMCTR, IMCTR_FLUSH);
-	}
-}
 /* -----------------------------------------------------------------------------
  * TLB and microTLB Management
  */
@@ -787,17 +761,6 @@ static void ipmmu_domain_destroy_context(struct ipmmu_vmsa_domain *domain)
  * Fault Handling
  */
 
-static struct tasklet error_tasklet;
-static u32 iova_save;
-phys_addr_t ipmmu_iova_to_phys(struct iommu_domain *io_domain, dma_addr_t iova);
-
-static void error_recovery(unsigned long data)
-{
-	struct ipmmu_vmsa_domain *domain = (struct ipmmu_vmsa_domain *)data;
-	phys_addr_t paddr = ipmmu_iova_to_phys(&domain->io_domain, iova_save);
-	printk("IOVA %#x PA %#lx\n", iova_save, paddr);
-}
-
 /* Xen: Show domain_id in every printk */
 static irqreturn_t ipmmu_domain_irq(struct ipmmu_vmsa_domain *domain)
 {
@@ -812,7 +775,6 @@ static irqreturn_t ipmmu_domain_irq(struct ipmmu_vmsa_domain *domain)
 		return IRQ_NONE;
 
 	iova = ipmmu_ctx_read(domain, IMEAR);
-	iova_save = iova;
 
 	/*
 	 * Clear the error status flags. Unlike traditional interrupt flag
@@ -845,9 +807,6 @@ static irqreturn_t ipmmu_domain_irq(struct ipmmu_vmsa_domain *domain)
 	dev_err_ratelimited(mmu->dev,
 			"d%d: Unhandled fault: status 0x%08x iova 0x%08x\n",
 			domain->d->domain_id, status, iova);
-
-	if (domain->d->domain_id == 0)
-		tasklet_schedule(&error_tasklet);
 
 	return IRQ_HANDLED;
 }
@@ -1042,7 +1001,6 @@ static int ipmmu_attach_device(struct iommu_domain *io_domain,
 #if 0
 		ret = ipmmu_domain_init_context(domain);
 #endif
-		domain->mmu->disabled = false;
 		ipmmu_ctx_write1(domain, IMCTR,
 				ipmmu_ctx_read(domain, IMCTR) | IMCTR_FLUSH);
 
@@ -2160,9 +2118,6 @@ static int ipmmu_vmsa_alloc_page_table(struct domain *d)
 		spin_unlock(&xen_domain->lock);
 	}
 
-	if (d->domain_id == 0)
-		tasklet_init(&error_tasklet, error_recovery, (unsigned long)domain);
-
 	return 0;
 
 out:
@@ -2209,10 +2164,8 @@ static int __must_check ipmmu_vmsa_map_pages(struct domain *d, unsigned long gfn
 		prot |= IOMMU_READ;
 
 	spin_lock(&xen_domain->lock);
-	ipmmu_ctx_disable(to_vmsa_domain(xen_domain->base_context));
 	ret = ipmmu_map(xen_domain->base_context, pfn_to_paddr(gfn),
 			pfn_to_paddr(mfn), size, prot);
-	ipmmu_ctx_enable(to_vmsa_domain(xen_domain->base_context));
 
 	spin_unlock(&xen_domain->lock);
 
@@ -2235,9 +2188,7 @@ static int __must_check ipmmu_vmsa_unmap_pages(struct domain *d, unsigned long g
 		return -EINVAL;
 
 	spin_lock(&xen_domain->lock);
-	ipmmu_ctx_disable(to_vmsa_domain(xen_domain->base_context));
 	ret = ipmmu_unmap(xen_domain->base_context, pfn_to_paddr(gfn), size);
-	ipmmu_ctx_enable(to_vmsa_domain(xen_domain->base_context));
 	if (ret == size)
 		ret = 0;
 
