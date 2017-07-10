@@ -278,9 +278,9 @@ static int gx6xxx_mmio_write(struct vcpu *v, mmio_info_t *info,
     }
     if ( vinfo->state == VGX6XXX_STATE_RUNNING )
     {
-        if ( likely(ctx.offset == RGX_CR_MTS_SCHEDULE) )
+        /*if ( likely(ctx.offset == RGX_CR_MTS_SCHEDULE) )
             COPROC_ERROR(NULL, "dom %d VGX6XXX_STATE_RUNNING RGX_CR_MTS_SCHEDULE_TASK_COUNTED\n",
-                         ctx.vcoproc->domain->domain_id);
+                         ctx.vcoproc->domain->domain_id);*/
 #ifdef GX6XXX_DEBUG
         if ( likely(ctx.offset == RGX_CR_MTS_SCHEDULE) )
             gx6xxx_fw_dump_kccb(ctx.vcoproc, vinfo);
@@ -295,8 +295,8 @@ static int gx6xxx_mmio_write(struct vcpu *v, mmio_info_t *info,
         {
             BUG_ON(r != RGX_CR_MTS_SCHEDULE_TASK_COUNTED);
             vinfo->reg_cr_mts_schedule_lo_wait_cnt++;
-            COPROC_ERROR(NULL, "dom %d VGX6XXX_STATE_IN_TRANSIT RGX_CR_MTS_SCHEDULE_TASK_COUNTED\n",
-                         ctx.vcoproc->domain->domain_id);
+            /*COPROC_ERROR(NULL, "dom %d VGX6XXX_STATE_IN_TRANSIT RGX_CR_MTS_SCHEDULE_TASK_COUNTED\n",
+                         ctx.vcoproc->domain->domain_id);*/
             goto out;
         }
         if ( unlikely(!gx6xxx_on_reg_write(ctx.offset, r, ctx.vcoproc)))
