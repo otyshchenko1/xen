@@ -228,6 +228,16 @@ static inline void schedule_trace(struct vcoproc_instance *curr,
     }
 }
 
+/* number of switches to collect switch time stats from */
+#define GX6XXX_SW_STATS_NUM     100
+
+s_time_t tm_start_sw_to;
+s_time_t tm_start_sw_to_acc;
+int tm_cnt_sw_to;
+s_time_t tm_start_sw_from;
+s_time_t tm_start_sw_from_acc;
+int tm_cnt_sw_from;
+
 static s_time_t vcoproc_scheduler_context_switch(struct vcoproc_instance *curr,
                                                 struct vcoproc_instance *next)
 {
@@ -250,7 +260,19 @@ static s_time_t vcoproc_scheduler_context_switch(struct vcoproc_instance *curr,
 
         if ( wait_time == 0 )
         {
+            tm_start_sw_from = NOW();
+
             ret = iommu_disable_coproc(curr->domain, dev_to_dt(coproc->dev));
+
+            tm_cnt_sw_from++;
+            tm_start_sw_from_acc += NOW() - tm_start_sw_from;
+            if ( tm_cnt_sw_from >= GX6XXX_SW_STATS_NUM )
+            {
+                printk("from %lu ns\n", tm_start_sw_from_acc / tm_cnt_sw_from);
+                tm_cnt_sw_from = 0;
+                tm_start_sw_from_acc = 0;
+            }
+
             if ( unlikely(ret) )
                 panic("Failed to disable IOMMU context for coproc \"%s\" in domain %u (%d)\n",
                       dev_path(coproc->dev), curr->domain->domain_id, ret);
@@ -273,7 +295,19 @@ static s_time_t vcoproc_scheduler_context_switch(struct vcoproc_instance *curr,
     {
         ASSERT(next->state == VCOPROC_WAITING);
 
+        tm_start_sw_to = NOW();
+
         ret = iommu_enable_coproc(next->domain, dev_to_dt(coproc->dev));
+
+        tm_cnt_sw_to++;
+        tm_start_sw_to_acc += NOW() - tm_start_sw_to;
+        if ( tm_cnt_sw_to >= GX6XXX_SW_STATS_NUM )
+        {
+            printk("to %lu ns\n", tm_start_sw_to_acc / tm_cnt_sw_to);
+            tm_cnt_sw_to = 0;
+            tm_start_sw_to_acc = 0;
+        }
+
         if ( unlikely(ret) )
             panic("Failed to enable IOMMU context for coproc \"%s\" in domain %u (%d)\n",
                   dev_path(coproc->dev), next->domain->domain_id, ret);
