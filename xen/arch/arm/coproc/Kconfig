@@ -1,6 +1,6 @@
 choice
 	prompt "GPU virtualization"
-	default COPROC_GSX6XX
+	default COPROC_GSX_IMG
 	depends on HAS_COPROC
 
 	config COPROC_GSX6XX
