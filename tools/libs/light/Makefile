@@ -71,6 +71,7 @@ ifeq ($(OBJS-OS-y),)
 $(error Your Operating System is not supported by libxenlight, \
 please check libxl_linux.c and libxl_netbsd.c to see how to get it ported)
 endif
+
 OBJS-y += $(OBJS-OS-y)
 
 OBJS-y += libxl.o
@@ -116,6 +117,7 @@ OBJS-y += libxl_genid.o
 OBJS-y += _libxl_types.o
 OBJS-y += libxl_flask.o
 OBJS-y += _libxl_types_internal.o
+OBJS-y += libxl_vgsx.o
 
 ifeq ($(CONFIG_LIBNL),y)
 CFLAGS_LIBXL += $(LIBNL3_CFLAGS)
