@@ -540,7 +540,6 @@ struct pv_vcpu
     uint32_t dr7_emul;
 
     /* Deferred VA-based update state. */
-    bool_t need_update_runstate_area;
     struct vcpu_time_info pending_system_time;
 };
 
@@ -632,7 +631,6 @@ struct guest_memory_policy
 void update_guest_memory_policy(struct vcpu *v,
                                 struct guest_memory_policy *policy);
 
-bool update_runstate_area(struct vcpu *);
 bool update_secondary_system_time(struct vcpu *,
                                   struct vcpu_time_info *);
 
