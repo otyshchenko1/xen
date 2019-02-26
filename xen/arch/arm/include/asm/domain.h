@@ -104,6 +104,9 @@ struct arch_domain
 #endif
 
     bool directmap;
+
+    /* OSID used by virtual GSX device */
+    uint8_t vgsx_osid;
 }  __cacheline_aligned;
 
 struct arch_vcpu
