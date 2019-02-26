@@ -198,6 +198,8 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
         return ERROR_FAIL;
     }
 
+    config->arch.vgsx_osid = 0;
+
     return 0;
 }
 
