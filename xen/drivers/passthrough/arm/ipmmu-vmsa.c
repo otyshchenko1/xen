@@ -774,14 +774,10 @@ static void ipmmu_device_reset(struct ipmmu_vmsa_device *mmu)
 }
 
 /*
- * Current driver relies on the fact that Root IPMMU device is being probed
+ * This function relies on the fact that Root IPMMU device is being probed
  * the first. If not the case, it denies further Cache IPMMU device probes
- * (returns the -EAGAIN) until the Root IPMMU device has been registered
+ * (returns the -ENODEV) until the Root IPMMU device has been registered
  * for sure.
- *
- * TODO: Probably, we should modify iommu_hardware_setup() somehow to make
- * Root device to be always probed the first or try to locate it manually here
- * in driver, when probing the first IPMMU instance if one is not Root device.
  */
 static int ipmmu_probe(struct dt_device_node *node)
 {
@@ -832,7 +828,7 @@ static int ipmmu_probe(struct dt_device_node *node)
     if ( !mmu->root )
     {
         dev_err(&node->dev, "Root IPMMU hasn't been registered yet\n");
-        return -EAGAIN;
+        return -ENODEV;
     }
 
     /* Root devices have mandatory IRQs. */
@@ -1388,6 +1384,8 @@ static const struct dt_device_match ipmmu_dt_match[] __initconst =
 
 static __init int ipmmu_init(struct dt_device_node *node, const void *data)
 {
+    static struct dt_device_node *root_node = NULL;
+    static bool init_once = true;
     int ret;
 
     /*
@@ -1440,11 +1438,54 @@ static __init int ipmmu_init(struct dt_device_node *node, const void *data)
         return ret;
     }
 
-    ret = ipmmu_probe(node);
-    if ( ret )
+    if ( init_once )
     {
-        dev_err(&node->dev, "Failed to init IPMMU (%d)\n", ret);
-        return ret;
+        /*
+        * Loop through all IPMMU nodes to find Root IPMMU device. It must
+        * be probed the first.
+        * Determine if this IPMMU node is a Root IPMMU by checking for
+        * the lack of "renesas,ipmmu-main" property.
+        */
+        while ( (root_node = dt_find_matching_node(root_node, ipmmu_dt_match)) )
+        {
+            if ( !dt_find_property(root_node, "renesas,ipmmu-main", NULL) )
+                break;
+        }
+
+        init_once = false;
+
+        if ( !root_node )
+        {
+            dev_err(&node->dev, "Failed to find Root node\n");
+            return -ENODEV;
+        }
+
+        /*
+         * Probe Root IPMMU beforehand despite what IPMMU device is being
+         * processed now.
+         */
+        ret = ipmmu_probe(root_node);
+        if ( ret )
+        {
+            dev_err(&root_node->dev, "Failed to init Root IPMMU (%d)\n", ret);
+            root_node = NULL;
+            return ret;
+        }
+    }
+
+    /* There is no sense in initializing Cache IPMMUs without Root IPMMU. */
+    if ( !root_node )
+        return -ENODEV;
+
+    /* Probe Cache IPMMU and skip already register Root IPMMU if such. */
+    if ( root_node != node )
+    {
+        ret = ipmmu_probe(node);
+        if ( ret )
+        {
+            dev_err(&node->dev, "Failed to init Cache IPMMU (%d)\n", ret);
+            return ret;
+        }
     }
 
     iommu_set_ops(&ipmmu_iommu_ops);
