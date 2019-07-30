@@ -598,6 +598,58 @@ void *_xzalloc(unsigned long size, unsigned long align)
     return p ? memset(p, 0, size) : p;
 }
 
+void *_xrealloc(void *ptr, unsigned long size, unsigned long align)
+{
+    unsigned long curr_size, tmp_size;
+    void *p;
+
+    if ( !size )
+    {
+        xfree(ptr);
+        return ZERO_BLOCK_PTR;
+    }
+
+    if ( ptr == NULL || ptr == ZERO_BLOCK_PTR )
+        return _xmalloc(size, align);
+
+    if ( !((unsigned long)ptr & (PAGE_SIZE - 1)) )
+        curr_size = PFN_ORDER(virt_to_page(ptr)) << PAGE_SHIFT;
+    else
+    {
+        struct bhdr *b = (struct bhdr *)((char *)ptr - BHDR_OVERHEAD);
+
+        if ( b->size & FREE_BLOCK )
+        {
+            p = (char *)ptr - (b->size & ~FREE_BLOCK);
+            b = (struct bhdr *)((char *)p - BHDR_OVERHEAD);
+            ASSERT(!(b->size & FREE_BLOCK));
+        }
+
+        curr_size = b->size & BLOCK_SIZE_MASK;
+    }
+
+    ASSERT((align & (align - 1)) == 0);
+    if ( align < MEM_ALIGN )
+        align = MEM_ALIGN;
+    tmp_size = size + align - MEM_ALIGN;
+
+    if ( tmp_size < PAGE_SIZE )
+        tmp_size = ( tmp_size < MIN_BLOCK_SIZE ) ? MIN_BLOCK_SIZE :
+            ROUNDUP_SIZE(tmp_size);
+
+    if ( tmp_size <= curr_size && ((unsigned long)ptr & (align - 1)) == 0 )
+        return ptr; /* the size and alignment fit in already allocated space */
+
+    p = _xmalloc(size, align);
+    if ( p )
+    {
+        memcpy(p, ptr, min(curr_size, size));
+        xfree(ptr);
+    }
+
+    return p;
+}
+
 void xfree(void *p)
 {
     struct bhdr *b;
