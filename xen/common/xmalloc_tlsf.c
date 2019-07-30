@@ -610,6 +610,27 @@ void *_xzalloc(unsigned long size, unsigned long align)
     return p ? memset(p, 0, size) : p;
 }
 
+void *_xrealloc(void *p, unsigned long new_size, unsigned long align)
+{
+    void *new_p;
+
+    if ( !new_size )
+    {
+        xfree(p);
+        return NULL;
+    }
+
+    new_p = _xmalloc(new_size, align);
+
+    if ( new_p && p )
+    {
+        memcpy(new_p, p, new_size);
+        xfree(p);
+    }
+
+    return new_p;
+}
+
 void xfree(void *p)
 {
     struct bhdr *b;
