@@ -20,6 +20,12 @@
 #include <xen/device_tree.h>
 #include <asm/device.h>
 
+/*
+ * Used to keep track of devices for which driver requested deferred probing
+ * (returns -EAGAIN).
+ */
+static LIST_HEAD(deferred_probe_list);
+
 static const struct iommu_ops *iommu_ops;
 
 const struct iommu_ops *iommu_get_ops(void)
@@ -42,7 +48,7 @@ void __init iommu_set_ops(const struct iommu_ops *ops)
 
 int __init iommu_hardware_setup(void)
 {
-    struct dt_device_node *np;
+    struct dt_device_node *np, *tmp;
     int rc;
     unsigned int num_iommus = 0;
 
@@ -51,6 +57,33 @@ int __init iommu_hardware_setup(void)
         rc = device_init(np, DEVICE_IOMMU, NULL);
         if ( !rc )
             num_iommus++;
+        else if (rc == -EAGAIN)
+            /*
+             * Driver requested deferred probing, so add this device to
+             * the deferred list for further processing.
+             */
+            list_add(&np->deferred_probe, &deferred_probe_list);
+    }
+
+    /*
+     * Process devices in the deferred list if at least one successfully
+     * probed device is present.
+     */
+    while ( !list_empty(&deferred_probe_list) && num_iommus )
+    {
+        list_for_each_entry_safe ( np, tmp, &deferred_probe_list,
+                                   deferred_probe )
+        {
+            rc = device_init(np, DEVICE_IOMMU, NULL);
+            if ( !rc )
+                num_iommus++;
+            if ( rc != -EAGAIN )
+                /*
+                 * Driver didn't request deferred probing, so remove this device
+                 * from the deferred list.
+                 */
+                list_del_init(&np->deferred_probe);
+        }
     }
 
     return ( num_iommus > 0 ) ? 0 : -ENODEV;

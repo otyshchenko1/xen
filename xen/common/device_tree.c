@@ -1774,6 +1774,7 @@ static unsigned long __init unflatten_dt_node(const void *fdt,
         /* By default the device is not protected */
         np->is_protected = false;
         INIT_LIST_HEAD(&np->domain_list);
+        INIT_LIST_HEAD(&np->deferred_probe);
 
         if ( new_format )
         {

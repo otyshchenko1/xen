@@ -93,6 +93,7 @@ struct dt_device_node {
     /* IOMMU specific fields */
     bool is_protected;
     struct list_head domain_list;
+    struct list_head deferred_probe;
 
     struct device dev;
 };
