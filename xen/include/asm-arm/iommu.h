@@ -28,6 +28,9 @@ struct arch_iommu
 const struct iommu_ops *iommu_get_ops(void);
 void iommu_set_ops(const struct iommu_ops *ops);
 
+/* helper to add DT device to the IOMMU */
+int iommu_add_dt_device(struct dt_device_node *np);
+
 /* mapping helpers */
 int __must_check arm_iommu_map_page(struct domain *d, dfn_t dfn, mfn_t mfn,
                                     unsigned int flags,

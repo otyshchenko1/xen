@@ -1241,6 +1241,18 @@ static int __init handle_device(struct domain *d, struct dt_device_node *dev,
     u64 addr, size;
     bool need_mapping = !dt_device_for_passthrough(dev);
 
+    if ( dt_parse_phandle(dev, "iommus", 0) )
+    {
+        dt_dprintk("%s add to iommu\n", dt_node_full_name(dev));
+        res = iommu_add_dt_device(dev);
+        if ( res )
+        {
+            printk(XENLOG_ERR "Failed to add %s to the IOMMU\n",
+                   dt_node_full_name(dev));
+            return res;
+        }
+    }
+
     nirq = dt_number_of_irq(dev);
     naddr = dt_number_of_address(dev);
 

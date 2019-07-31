@@ -113,3 +113,48 @@ int arch_iommu_populate_page_table(struct domain *d)
 void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
 {
 }
+
+int __init iommu_add_dt_device(struct dt_device_node *np)
+{
+    const struct iommu_ops *ops = iommu_get_ops();
+    struct dt_phandle_args iommu_spec;
+    struct device *dev = dt_to_dev(np);
+    int rc = 1, index = 0;
+
+    if ( !iommu_enabled || !ops || !ops->add_device )
+        return 0;
+
+    if ( dev_iommu_fwspec_get(dev) )
+        return -EEXIST;
+
+    /* According to the Documentation/devicetree/bindings/iommu/iommu.txt */
+    while ( !dt_parse_phandle_with_args(np, "iommus", "#iommu-cells",
+                                        index, &iommu_spec) )
+    {
+        if ( !dt_device_is_available(iommu_spec.np) )
+            break;
+
+        rc = iommu_fwspec_init(dev, &iommu_spec.np->dev);
+        if ( rc )
+            break;
+
+        rc = iommu_fwspec_add_ids(dev, iommu_spec.args, 1);
+        if ( rc )
+            break;
+
+        index++;
+    }
+
+    /*
+     * Add DT device to the IOMMU if latter is present and available.
+     * The IOMMU driver's responsibility is to check whether dev->iommu_fwspec
+     * field is initialized and mark that device as protected.
+     */
+    if ( !rc )
+        rc = ops->add_device(0, dev);
+
+    if ( rc < 0 )
+        iommu_fwspec_free(dev);
+
+    return rc < 0 ? rc : 0;
+}
