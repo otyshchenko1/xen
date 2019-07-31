@@ -1240,6 +1240,7 @@ static int __init map_device_children(struct domain *d,
 
 /*
  * For a given device node:
+ *  - Try to call iommu_add_dt_device to protect the device by an IOMMU
  *  - Give permission to the guest to manage IRQ and MMIO range
  *  - Retrieve the IRQ configuration (i.e edge/level) from device tree
  * When the device is not marked for guest passthrough:
@@ -1256,6 +1257,16 @@ static int __init handle_device(struct domain *d, struct dt_device_node *dev,
     struct dt_raw_irq rirq;
     u64 addr, size;
     bool need_mapping = !dt_device_for_passthrough(dev);
+
+    dt_dprintk("%s add to iommu\n", dt_node_full_name(dev));
+
+    res = iommu_add_dt_device(dev);
+    if ( res < 0 )
+    {
+        printk(XENLOG_ERR "Failed to add %s to the IOMMU\n",
+               dt_node_full_name(dev));
+        return res;
+    }
 
     nirq = dt_number_of_irq(dev);
     naddr = dt_number_of_address(dev);
