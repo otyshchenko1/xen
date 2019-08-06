@@ -691,7 +691,7 @@ static int vgic_v2_domain_init(struct domain *d)
      * region of the guest.
      */
     ret = map_mmio_regions(d, gaddr_to_gfn(cbase), csize / PAGE_SIZE,
-                           maddr_to_mfn(vbase));
+                           maddr_to_mfn(vbase), p2m_mmio_direct_dev);
     if ( ret )
         return ret;
 

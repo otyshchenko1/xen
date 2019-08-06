@@ -1231,7 +1231,7 @@ static int __init map_range_to_domain(const struct dt_device_node *dev,
 
     if ( need_mapping )
     {
-        res = map_regions_p2mt(d,
+        res = map_mmio_regions(d,
                                gaddr_to_gfn(addr),
                                PFN_UP(len),
                                maddr_to_mfn(addr),
@@ -1806,7 +1806,7 @@ static int __init handle_passthrough_prop(struct kernel_info *kinfo,
             return res;
         }
 
-        res = map_regions_p2mt(kinfo->d,
+        res = map_mmio_regions(kinfo->d,
                                gaddr_to_gfn(gstart),
                                PFN_DOWN(size),
                                maddr_to_mfn(mstart),

@@ -1896,7 +1896,7 @@ static bool try_map_mmio(gfn_t gfn)
     if ( !iomem_access_permitted(d, mfn_x(mfn), mfn_x(mfn) + 1) )
         return false;
 
-    return !map_regions_p2mt(d, gfn, 1, mfn, p2m_mmio_direct_c);
+    return !map_mmio_regions(d, gfn, 1, mfn, p2m_mmio_direct_c);
 }
 
 static void do_trap_stage2_abort_guest(struct cpu_user_regs *regs,
