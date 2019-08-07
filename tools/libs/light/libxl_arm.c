@@ -1318,6 +1318,20 @@ int libxl__arch_passthrough_mode_setdefault(libxl__gc *gc,
     return rc;
 }
 
+int libxl__arch_memory_policy_to_xc(libxl_memory_policy c)
+{
+    switch (c) {
+    case LIBXL_MEMORY_POLICY_ARM_MEM_WB:
+        return MEMORY_POLICY_ARM_MEM_WB;
+    case LIBXL_MEMORY_POLICY_ARM_DEV_NGNRE:
+        return MEMORY_POLICY_ARM_DEV_nGnRE;
+    case LIBXL_MEMORY_POLICY_DEFAULT:
+        return MEMORY_POLICY_DEFAULT;
+    default:
+        return ERROR_INVAL;
+    }
+}
+
 /*
  * Local variables:
  * mode: C
