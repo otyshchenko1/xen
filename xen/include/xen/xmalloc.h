@@ -35,6 +35,18 @@
 #define xzalloc_array(_type, _num) \
     ((_type *)_xzalloc_array(sizeof(_type), __alignof__(_type), _num))
 
+/* Re-allocate space for a structure with a flexible array of typed objects. */
+#define xrealloc_flex_struct(_ptr, _type, _field, _len) ({                   \
+    /* type checking: make sure that incoming pointer is of correct type */  \
+    (void)((typeof(_ptr)) 0 == (_type *) 0);                                 \
+    ((_type *)_xrealloc(_ptr, offsetof(_type, _field[_len]),                 \
+                        __alignof__(_type)));                                \
+})
+
+/* Allocate space for a structure with a flexible array of typed objects. */
+#define xmalloc_flex_struct(_type, _field, _len) \
+    ((_type *)_xmalloc(offsetof(_type, _field[_len]), __alignof__(_type)))
+
 /* Allocate untyped storage. */
 #define xmalloc_bytes(_bytes) _xmalloc(_bytes, SMP_CACHE_BYTES)
 #define xzalloc_bytes(_bytes) _xzalloc(_bytes, SMP_CACHE_BYTES)
