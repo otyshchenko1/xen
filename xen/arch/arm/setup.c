@@ -802,6 +802,7 @@ void __init start_xen(unsigned long boot_phys_offset,
         .max_grant_frames = gnttab_dom0_frames(),
         .max_maptrack_frames = opt_max_maptrack_frames,
     };
+    int rc;
 
     dcache_line_bytes = read_dcache_line_bytes();
 
@@ -937,7 +938,9 @@ void __init start_xen(unsigned long boot_phys_offset,
 
     setup_virt_paging();
 
-    iommu_setup();
+    rc = iommu_setup();
+    if ( !iommu_enabled && rc != -ENODEV )
+        panic("Couldn't configure correctly all the IOMMUs.");
 
     do_initcalls();
 
