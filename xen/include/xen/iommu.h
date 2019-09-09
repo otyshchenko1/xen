@@ -239,6 +239,16 @@ struct iommu_ops {
     int __must_check (*iotlb_flush_all)(struct domain *d);
     int (*get_reserved_device_memory)(iommu_grdm_t *, void *);
     void (*dump_p2m_table)(struct domain *d);
+
+#ifdef CONFIG_HAS_DEVICE_TREE
+    /*
+     * All IOMMU drivers which support generic IOMMU DT bindings should use
+     * this callback. This is a way for the framework to provide the driver
+     * with DT IOMMU specifier which describes the IOMMU master interfaces of
+     * that device (device IDs, etc).
+     */
+    int (*dt_xlate)(device_t *dev, struct dt_phandle_args *args);
+#endif
 };
 
 #include <asm/iommu.h>

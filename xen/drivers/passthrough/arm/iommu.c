@@ -20,6 +20,7 @@
 #include <xen/lib.h>
 
 #include <asm/device.h>
+#include <asm/iommu_fwspec.h>
 
 /*
  * Deferred probe list is used to keep track of devices for which driver
@@ -140,4 +141,66 @@ int arch_iommu_populate_page_table(struct domain *d)
 
 void __hwdom_init arch_iommu_hwdom_init(struct domain *d)
 {
+}
+
+int __init iommu_add_dt_device(struct dt_device_node *np)
+{
+    const struct iommu_ops *ops = iommu_get_ops();
+    struct dt_phandle_args iommu_spec;
+    struct device *dev = dt_to_dev(np);
+    int rc = 1, index = 0;
+
+    if ( !iommu_enabled )
+        return 1;
+
+    if ( !ops )
+        return -EINVAL;
+
+    if ( dev_iommu_fwspec_get(dev) )
+        return -EEXIST;
+
+    /*
+     * According to the Documentation/devicetree/bindings/iommu/iommu.txt
+     * from Linux.
+     */
+    while ( !dt_parse_phandle_with_args(np, "iommus", "#iommu-cells",
+                                        index, &iommu_spec) )
+    {
+        /*
+         * The driver which supports generic IOMMU DT bindings must have
+         * these callback implemented.
+         */
+        if ( !ops->add_device || !ops->dt_xlate )
+            return -EINVAL;
+
+        if ( !dt_device_is_available(iommu_spec.np) )
+            break;
+
+        rc = iommu_fwspec_init(dev, &iommu_spec.np->dev);
+        if ( rc )
+            break;
+
+        /*
+         * Provide DT IOMMU specifier which describes the IOMMU master
+         * interfaces of that device (device IDs, etc) to the driver.
+         * The driver is responsible to decide how to interpret them.
+         */
+        rc = ops->dt_xlate(dev, &iommu_spec);
+        if ( rc )
+            break;
+
+        index++;
+    }
+
+    /*
+     * Add master device to the IOMMU if latter is present and available.
+     * The driver is responsible to mark that device as protected.
+     */
+    if ( !rc )
+        rc = ops->add_device(0, dev);
+
+    if ( rc < 0 )
+        iommu_fwspec_free(dev);
+
+    return rc;
 }

@@ -27,6 +27,17 @@ const struct iommu_ops *iommu_get_ops(void);
 void iommu_set_ops(const struct iommu_ops *ops);
 
 /*
+ * Helper to add master device to the IOMMU using generic IOMMU DT bindings.
+ *
+ * Return values:
+ *  0 : device is protected by an IOMMU
+ * <0 : device is not protected by an IOMMU, but must be (error condition)
+ * >0 : device doesn't need to be protected by an IOMMU
+ *      (IOMMU is not enabled/present or device is not connected to it).
+ */
+int iommu_add_dt_device(struct dt_device_node *np);
+
+/*
  * The mapping helpers below should only be used if P2M Table is shared
  * between the CPU and the IOMMU.
  */
