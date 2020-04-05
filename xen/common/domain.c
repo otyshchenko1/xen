@@ -705,6 +705,7 @@ int domain_kill(struct domain *d)
 {
     int rc = 0;
     struct vcpu *v;
+    struct domain *td;
 
     if ( d == current->domain )
         return -EINVAL;
@@ -745,6 +746,20 @@ int domain_kill(struct domain *d)
          * have to be put before we call put_domain. */
         vm_event_cleanup(d);
         put_domain(d);
+        /*
+         * XEN_DOMCTL_set_target implementation holds reference on
+         * target domain which doesn't allow to completely destroy it.
+         * Check if the reference are hold by someone and drop it
+         * when destroying target domain.
+         */
+        for_each_domain ( td ) {
+            if ( td->target == d ) {
+                td->target = NULL;
+                put_domain(d);
+                break;
+            }
+        }
+
         send_global_virq(VIRQ_DOM_EXC);
         /* fallthrough */
     case DOMDYING_dead:
