@@ -871,6 +871,12 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
         if ( (d == e) || (d->target != NULL) )
         {
             put_domain(e);
+            /*
+             * Be a little bit more polite here, looks like the emulator
+             * has just been restarted.
+             */
+            if ( d->target == e )
+                ret = 0;
             break;
         }
 
@@ -883,7 +889,7 @@ long do_domctl(XEN_GUEST_HANDLE_PARAM(xen_domctl_t) u_domctl)
             break;
         }
 
-        /* Hold reference on @e until we destroy @d. */
+        /* Hold reference on @e until we destroy either @d or @e */
         d->target = e;
         break;
     }
