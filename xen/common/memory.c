@@ -1153,12 +1153,18 @@ static int acquire_resource(
         unsigned int i;
 
         /*
+         * XXX: Ugly hack for now to let emulator running in driver domain
+         * to succeeded in acquiring resource.
+         */
+#if 0
+        /*
          * FIXME: Until foreign pages inserted into the P2M are properly
          *        reference counted, it is unsafe to allow mapping of
          *        resource pages unless the caller is the hardware domain.
          */
         if ( !is_hardware_domain(currd) )
             return -EACCES;
+#endif
 
         if ( copy_from_guest(gfn_list, xmar.frame_list, xmar.nr_frames) )
             rc = -EFAULT;
