@@ -75,6 +75,20 @@ bool handle_mmio(void)
     return true;
 }
 
+/* Ask ioemu mapcache to invalidate mappings. */
+void send_invalidate_req(void)
+{
+    ioreq_t p = {
+        .type = IOREQ_TYPE_INVALIDATE,
+        .size = 4,
+        .dir = IOREQ_WRITE,
+        .data = ~0UL, /* flush all */
+    };
+
+    if ( hvm_broadcast_ioreq(&p, false) != 0 )
+        gprintk(XENLOG_ERR, "Unsuccessful map-cache invalidate\n");
+}
+
 /*
  * Local variables:
  * mode: C
