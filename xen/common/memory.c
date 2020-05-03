@@ -1651,6 +1651,11 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         break;
     }
 
+#ifdef CONFIG_IOREQ_SERVER
+    if ( op == XENMEM_decrease_reservation )
+        curr_d->qemu_mapcache_invalidate = true;
+#endif
+
     return rc;
 }
 
