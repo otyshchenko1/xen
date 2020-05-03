@@ -18,8 +18,10 @@
  *
  * Copyright (c) 2017 Citrix Systems Ltd.
  */
+
 #include <xen/lib.h>
 #include <xen/hypercall.h>
+#include <xen/ioreq.h>
 #include <xen/nospec.h>
 
 #include <asm/hvm/emulate.h>
@@ -45,9 +47,6 @@ static long hvm_memory_op(int cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
         rc = do_memory_op(cmd, arg);
     else
         rc = compat_memory_op(cmd, arg);
-
-    if ( (cmd & MEMOP_CMD_MASK) == XENMEM_decrease_reservation )
-        curr->domain->arch.hvm.qemu_mapcache_invalidate = true;
 
     return rc;
 }
@@ -329,8 +328,8 @@ int hvm_hypercall(struct cpu_user_regs *regs)
     if ( curr->hcall_preempted )
         return HVM_HCALL_preempted;
 
-    if ( unlikely(currd->arch.hvm.qemu_mapcache_invalidate) &&
-         test_and_clear_bool(currd->arch.hvm.qemu_mapcache_invalidate) )
+    if ( unlikely(currd->qemu_mapcache_invalidate) &&
+         test_and_clear_bool(currd->qemu_mapcache_invalidate) )
         send_invalidate_req();
 
     return HVM_HCALL_completed;

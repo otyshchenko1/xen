@@ -512,6 +512,8 @@ struct domain
     /* Argo interdomain communication support */
     struct argo_domain *argo;
 #endif
+
+    bool_t qemu_mapcache_invalidate;
 };
 
 static inline struct page_list_head *page_to_list(
