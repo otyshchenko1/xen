@@ -90,6 +90,8 @@ static inline void arch_hvm_ioreq_destroy(struct domain *d)
 #define IOREQ_IO_UNHANDLED   IO_UNHANDLED
 #define IOREQ_IO_RETRY       IO_RETRY
 
+void send_invalidate_req(void);
+
 #endif /* __ASM_X86_HVM_IOREQ_H__ */
 
 /*
