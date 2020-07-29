@@ -16,6 +16,7 @@
  * GNU General Public License for more details.
  */
 
+#include <xen/hvm/ioreq.h>
 #include <xen/lib.h>
 #include <xen/spinlock.h>
 #include <xen/sched.h>
@@ -107,6 +108,62 @@ static const struct mmio_handler *find_mmio_handler(struct domain *d,
     return handler;
 }
 
+#ifdef CONFIG_IOREQ_SERVER
+static enum io_state try_fwd_ioserv(struct cpu_user_regs *regs,
+                                    struct vcpu *v, mmio_info_t *info)
+{
+    struct hvm_vcpu_io *vio = &v->arch.hvm.hvm_io;
+    ioreq_t p = {
+        .type = IOREQ_TYPE_COPY,
+        .addr = info->gpa,
+        .size = 1 << info->dabt.size,
+        .count = 0,
+        .dir = !info->dabt.write,
+        .df = 0,         /* XXX: What's for? */
+        .data = get_user_reg(regs, info->dabt.reg),
+        .state = STATE_IOREQ_READY,
+    };
+    struct hvm_ioreq_server *s = NULL;
+    enum io_state rc;
+
+    switch ( vio->io_req.state )
+    {
+    case STATE_IOREQ_NONE:
+        break;
+    default:
+        printk("d%u wrong state %u\n", v->domain->domain_id,
+               vio->io_req.state);
+        return IO_ABORT;
+    }
+
+    s = hvm_select_ioreq_server(v->domain, &p);
+    if ( !s )
+        return IO_UNHANDLED;
+
+    if ( !info->dabt.valid )
+    {
+        printk("Valid bit not set\n");
+        return IO_ABORT;
+    }
+
+    vio->io_req = p;
+
+    rc = hvm_send_ioreq(s, &p, 0);
+    if ( rc != IO_RETRY || v->domain->is_shutting_down )
+        vio->io_req.state = STATE_IOREQ_NONE;
+    else if ( !hvm_ioreq_needs_completion(&vio->io_req) )
+        rc = IO_HANDLED;
+    else
+        vio->io_completion = HVMIO_mmio_completion;
+
+    /* XXX: Decide what to do */
+    if ( rc == IO_RETRY )
+        rc = IO_HANDLED;
+
+    return rc;
+}
+#endif
+
 enum io_state try_handle_mmio(struct cpu_user_regs *regs,
                               const union hsr hsr,
                               paddr_t gpa)
@@ -123,7 +180,15 @@ enum io_state try_handle_mmio(struct cpu_user_regs *regs,
 
     handler = find_mmio_handler(v->domain, info.gpa);
     if ( !handler )
-        return IO_UNHANDLED;
+    {
+        int rc = IO_UNHANDLED;
+
+#ifdef CONFIG_IOREQ_SERVER
+        rc = try_fwd_ioserv(regs, v, &info);
+#endif
+
+        return rc;
+    }
 
     /* All the instructions used on emulated MMIO region should be valid */
     if ( !dabt.valid )

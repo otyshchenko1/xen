@@ -51,6 +51,14 @@ static int hvm_allow_set_param(const struct domain *d, unsigned int param)
     case HVM_PARAM_MONITOR_RING_PFN:
         return d == current->domain ? -EPERM : 0;
 
+        /*
+         * XXX: Do we need to follow x86's logic here:
+         * "The following parameters should only be changed once"?
+         */
+    case HVM_PARAM_IOREQ_SERVER_PFN:
+    case HVM_PARAM_NR_IOREQ_SERVER_PAGES:
+        return 0;
+
         /* Writeable only by Xen, hole, deprecated, or out-of-range. */
     default:
         return -EINVAL;
@@ -69,6 +77,11 @@ static int hvm_allow_get_param(const struct domain *d, unsigned int param)
     case HVM_PARAM_CONSOLE_EVTCHN:
         return 0;
 
+        /* XXX: Could these be read by someone? What policy to apply? */
+    case HVM_PARAM_IOREQ_SERVER_PFN:
+    case HVM_PARAM_NR_IOREQ_SERVER_PAGES:
+        return 0;
+
         /*
          * The following parameters are intended for toolstack usage only.
          * They may not be read by the domain.
@@ -80,6 +93,37 @@ static int hvm_allow_get_param(const struct domain *d, unsigned int param)
     default:
         return -EINVAL;
     }
+}
+
+static int hvmop_set_param(struct domain *d, const struct xen_hvm_param *a)
+{
+    int rc = 0;
+
+    switch ( a->index )
+    {
+    case HVM_PARAM_IOREQ_SERVER_PFN:
+        d->arch.hvm.ioreq_gfn.base = a->value;
+        break;
+    case HVM_PARAM_NR_IOREQ_SERVER_PAGES:
+    {
+        unsigned int i;
+
+        if ( a->value == 0 ||
+             a->value > sizeof(d->arch.hvm.ioreq_gfn.mask) * 8 )
+        {
+            rc = -EINVAL;
+            break;
+        }
+        for ( i = 0; i < a->value; i++ )
+            set_bit(i, &d->arch.hvm.ioreq_gfn.mask);
+
+        break;
+    }
+    }
+
+    d->arch.hvm.params[a->index] = a->value;
+
+    return rc;
 }
 
 long do_hvm_op(unsigned long op, XEN_GUEST_HANDLE_PARAM(void) arg)
@@ -111,7 +155,7 @@ long do_hvm_op(unsigned long op, XEN_GUEST_HANDLE_PARAM(void) arg)
             if ( rc )
                 goto param_fail;
 
-            d->arch.hvm.params[a.index] = a.value;
+            rc = hvmop_set_param(d, &a);
         }
         else
         {
