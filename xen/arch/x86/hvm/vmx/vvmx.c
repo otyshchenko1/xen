@@ -18,11 +18,11 @@
  * this program; If not, see <http://www.gnu.org/licenses/>.
  *
  */
+#include <xen/hvm/ioreq.h>
 
 #include <asm/types.h>
 #include <asm/mtrr.h>
 #include <asm/p2m.h>
-#include <asm/hvm/ioreq.h>
 #include <asm/hvm/vmx/vmx.h>
 #include <asm/hvm/vmx/vvmx.h>
 #include <asm/hvm/nestedhvm.h>

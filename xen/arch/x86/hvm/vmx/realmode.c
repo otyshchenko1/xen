@@ -9,6 +9,7 @@
  *    Keir Fraser <keir@xen.org>
  */
 
+#include <xen/hvm/ioreq.h>
 #include <xen/init.h>
 #include <xen/lib.h>
 #include <xen/sched.h>
