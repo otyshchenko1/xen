@@ -15,11 +15,45 @@
  */
 
 #include <xen/hypercall.h>
+#include <asm/vgic.h>
 
 int arch_dm_op(struct xen_dm_op *op, struct domain *d,
                const struct dmop_args *op_args, bool *const_op)
 {
-    return -EOPNOTSUPP;
+    int rc;
+
+    switch ( op->op )
+    {
+    case XEN_DMOP_set_irq_level:
+    {
+        const struct xen_dm_op_set_irq_level *data =
+            &op->u.set_irq_level;
+
+        /* Only SPIs are supported */
+        if ( (data->irq < NR_LOCAL_IRQS) || (data->irq >= vgic_num_irqs(d)) )
+        {
+            rc = -EINVAL;
+            break;
+        }
+
+        if ( data->level != 0 && data->level != 1 )
+        {
+            rc = -EINVAL;
+            break;
+        }
+
+
+        vgic_inject_irq(d, NULL, data->irq, data->level);
+        rc = 0;
+        break;
+    }
+
+    default:
+        rc = -EOPNOTSUPP;
+        break;
+    }
+
+    return rc;
 }
 
 /*
