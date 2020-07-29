@@ -99,7 +99,6 @@
  * doing the final put_page(), and remove it from the iommu if so.
  */
 
-#include <xen/hvm/ioreq.h>
 #include <xen/init.h>
 #include <xen/kernel.h>
 #include <xen/lib.h>
@@ -4596,50 +4595,6 @@ int xenmem_add_to_physmap_one(
 
     if ( page )
         put_page(page);
-
-    return rc;
-}
-
-int arch_acquire_resource(struct domain *d, unsigned int type,
-                          unsigned int id, unsigned long frame,
-                          unsigned int nr_frames, xen_pfn_t mfn_list[])
-{
-    int rc;
-
-    switch ( type )
-    {
-#ifdef CONFIG_HVM
-    case XENMEM_resource_ioreq_server:
-    {
-        ioservid_t ioservid = id;
-        unsigned int i;
-
-        rc = -EINVAL;
-        if ( !is_hvm_domain(d) )
-            break;
-
-        if ( id != (unsigned int)ioservid )
-            break;
-
-        rc = 0;
-        for ( i = 0; i < nr_frames; i++ )
-        {
-            mfn_t mfn;
-
-            rc = hvm_get_ioreq_server_frame(d, id, frame + i, &mfn);
-            if ( rc )
-                break;
-
-            mfn_list[i] = mfn_x(mfn);
-        }
-        break;
-    }
-#endif
-
-    default:
-        rc = -EOPNOTSUPP;
-        break;
-    }
 
     return rc;
 }
