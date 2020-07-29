@@ -99,6 +99,7 @@
  * doing the final put_page(), and remove it from the iommu if so.
  */
 
+#include <xen/hvm/ioreq.h>
 #include <xen/init.h>
 #include <xen/kernel.h>
 #include <xen/lib.h>
@@ -141,7 +142,6 @@
 #include <asm/io_apic.h>
 #include <asm/pci.h>
 #include <asm/guest.h>
-#include <asm/hvm/ioreq.h>
 
 #include <asm/hvm/grant_table.h>
 #include <asm/pv/domain.h>

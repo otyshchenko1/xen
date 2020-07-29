@@ -16,13 +16,13 @@
 
 #include <xen/event.h>
 #include <xen/guest_access.h>
+#include <xen/hvm/ioreq.h>
 #include <xen/hypercall.h>
 #include <xen/nospec.h>
 #include <xen/sched.h>
 
 #include <asm/hap.h>
 #include <asm/hvm/cacheattr.h>
-#include <asm/hvm/ioreq.h>
 #include <asm/shadow.h>
 
 #include <xsm/xsm.h>
