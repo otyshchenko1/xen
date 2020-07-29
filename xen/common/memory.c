@@ -8,6 +8,7 @@
  */
 
 #include <xen/domain_page.h>
+#include <xen/hvm/ioreq.h>
 #include <xen/types.h>
 #include <xen/lib.h>
 #include <xen/mm.h>
@@ -29,10 +30,6 @@
 #include <asm/p2m.h>
 #include <public/memory.h>
 #include <xsm/xsm.h>
-
-#ifdef CONFIG_IOREQ_SERVER
-#include <xen/hvm/ioreq.h>
-#endif
 
 #ifdef CONFIG_X86
 #include <asm/guest.h>

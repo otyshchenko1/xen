@@ -18,6 +18,7 @@
 
 #include <xen/domain_page.h>
 #include <xen/errno.h>
+#include <xen/hvm/ioreq.h>
 #include <xen/hypercall.h>
 #include <xen/init.h>
 #include <xen/iocap.h>
@@ -1384,6 +1385,9 @@ static arm_hypercall_t arm_hypercall_table[] = {
 #ifdef CONFIG_HYPFS
     HYPERCALL(hypfs_op, 5),
 #endif
+#ifdef CONFIG_IOREQ_SERVER
+    HYPERCALL(dm_op, 3),
+#endif
 };
 
 #ifndef NDEBUG
@@ -1958,6 +1962,9 @@ static void do_trap_stage2_abort_guest(struct cpu_user_regs *regs,
             case IO_UNHANDLED:
                 /* IO unhandled, try another way to handle it. */
                 break;
+            default:
+                /* XXX: Handle IO_RETRY */
+                ASSERT_UNREACHABLE();
             }
         }
 
@@ -2275,6 +2282,16 @@ static void check_for_vcpu_work(void)
  */
 void leave_hypervisor_to_guest(void)
 {
+#ifdef CONFIG_IOREQ_SERVER
+    /*
+     * XXX: Check the return. Shall we call that in
+     * continue_running and context_switch instead?
+     * The benefits would be to avoid calling
+     * handle_hvm_io_completion on every return.
+     */
+    local_irq_enable();
+    handle_hvm_io_completion(current);
+#endif
     local_irq_disable();
 
     check_for_vcpu_work();
