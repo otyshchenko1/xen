@@ -5,6 +5,8 @@
     ((__typeof__(*(ptr)))__cmpxchg((ptr),(unsigned long)(o),            \
                                    (unsigned long)(n),sizeof(*(ptr))))
 
+#define cmpxchg64(ptr, o, n) cmpxchg(ptr, o, n)
+
 /*
  * Atomic 16 bytes compare and exchange.  Compare OLD with MEM, if
  * identical, store NEW in MEM.  Return the initial value in MEM.
