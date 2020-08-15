@@ -181,6 +181,11 @@ static always_inline bool __cmpxchg_mb_timeout(volatile void *ptr,
 	__ret; \
 })
 
+#define cmpxchg64(ptr, o, n) cmpxchg(ptr, o, n)
+
+#define __cmpxchg64_mb_timeout(ptr, old, new, max_try) \
+	__cmpxchg_mb_timeout(ptr, old, new, 8, max_try)
+
 #endif
 /*
  * Local variables:
