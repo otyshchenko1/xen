@@ -55,6 +55,22 @@ unsigned int hvm_broadcast_ioreq(ioreq_t *p, bool buffered);
 
 void hvm_ioreq_init(struct domain *d);
 
+int arch_hvm_destroy_ioreq_server(struct hvm_ioreq_server *s);
+
+bool arch_handle_hvm_io_completion(enum hvm_io_completion io_completion);
+
+int hvm_get_ioreq_server_range_type(struct domain *d,
+                                    ioreq_t *p,
+                                    uint8_t *type,
+                                    uint64_t *addr);
+
+void arch_hvm_ioreq_init(struct domain *d);
+void arch_hvm_ioreq_destroy(struct domain *d);
+
+#define IOREQ_IO_HANDLED     X86EMUL_OKAY
+#define IOREQ_IO_UNHANDLED   X86EMUL_UNHANDLEABLE
+#define IOREQ_IO_RETRY       X86EMUL_RETRY
+
 #endif /* __ASM_X86_HVM_IOREQ_H__ */
 
 /*
