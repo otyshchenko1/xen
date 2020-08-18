@@ -19,6 +19,25 @@
 #ifndef __ASM_X86_HVM_IOREQ_H__
 #define __ASM_X86_HVM_IOREQ_H__
 
+#define HANDLE_BUFIOREQ(s) \
+    ((s)->bufioreq_handling != HVM_IOREQSRV_BUFIOREQ_OFF)
+
+bool arch_vcpu_ioreq_completion(enum hvm_io_completion io_completion);
+int arch_ioreq_server_map_pages(struct hvm_ioreq_server *s);
+void arch_ioreq_server_unmap_pages(struct hvm_ioreq_server *s);
+void arch_ioreq_server_enable(struct hvm_ioreq_server *s);
+void arch_ioreq_server_disable(struct hvm_ioreq_server *s);
+void arch_ioreq_server_destroy(struct hvm_ioreq_server *s);
+int arch_ioreq_server_map_mem_type(struct domain *d,
+                                   struct hvm_ioreq_server *s,
+                                   uint32_t flags);
+bool arch_ioreq_server_destroy_all(struct domain *d);
+int arch_ioreq_server_get_type_addr(const struct domain *d,
+                                    const ioreq_t *p,
+                                    uint8_t *type,
+                                    uint64_t *addr);
+void arch_ioreq_domain_init(struct domain *d);
+
 bool hvm_io_pending(struct vcpu *v);
 bool handle_hvm_io_completion(struct vcpu *v);
 bool is_ioreq_server_page(struct domain *d, const struct page_info *page);
