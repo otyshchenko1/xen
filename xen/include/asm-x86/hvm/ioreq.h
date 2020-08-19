@@ -181,6 +181,8 @@ static inline bool arch_hvm_ioreq_destroy(struct domain *d)
 #define IOREQ_STATUS_UNHANDLED   X86EMUL_UNHANDLEABLE
 #define IOREQ_STATUS_RETRY       X86EMUL_RETRY
 
+#define ioreq_complete_mmio   handle_mmio
+
 #endif /* __ASM_X86_HVM_IOREQ_H__ */
 
 /*
