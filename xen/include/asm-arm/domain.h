@@ -10,12 +10,15 @@
 #include <asm/gic.h>
 #include <asm/vgic.h>
 #include <asm/vpl011.h>
+#include <public/hvm/dm_op.h>
 #include <public/hvm/params.h>
 
 struct hvm_domain
 {
     uint64_t              params[HVM_NR_PARAMS];
 };
+
+#define ioreq_params(d, i) ((d)->arch.hvm.params[i])
 
 #ifdef CONFIG_ARM_64
 enum domain_type {
@@ -261,6 +264,8 @@ static inline void free_vcpu_guest_context(struct vcpu_guest_context *vgc)
 static inline void arch_vcpu_block(struct vcpu *v) {}
 
 #define arch_vm_assist_valid_mask(d) (1UL << VMASST_TYPE_runstate_update_flag)
+
+#define has_vpci(d)    ({ (void)(d); false; })
 
 #endif /* __ASM_DOMAIN_H__ */
 

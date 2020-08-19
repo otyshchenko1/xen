@@ -18,6 +18,7 @@
 
 #include <xen/ctype.h>
 #include <xen/domain.h>
+#include <xen/domain_page.h>
 #include <xen/event.h>
 #include <xen/init.h>
 #include <xen/irq.h>
