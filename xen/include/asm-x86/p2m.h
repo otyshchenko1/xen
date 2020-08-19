@@ -635,7 +635,8 @@ int p2m_is_logdirty_range(struct p2m_domain *, unsigned long start,
                           unsigned long end);
 
 /* Set foreign entry in the p2m table (for priv-mapping) */
-int set_foreign_p2m_entry(struct domain *d, unsigned long gfn, mfn_t mfn);
+int set_foreign_p2m_entry(struct domain *d, struct domain *fd,
+                          unsigned long gfn, mfn_t mfn);
 
 /* Set mmio addresses in the p2m table (for pass-through) */
 int set_mmio_p2m_entry(struct domain *d, gfn_t gfn, mfn_t mfn,
