@@ -21,6 +21,7 @@
 #include <xen/hypercall.h>
 #include <xen/init.h>
 #include <xen/iocap.h>
+#include <xen/ioreq.h>
 #include <xen/irq.h>
 #include <xen/lib.h>
 #include <xen/mem_access.h>
@@ -1384,6 +1385,9 @@ static arm_hypercall_t arm_hypercall_table[] = {
 #ifdef CONFIG_HYPFS
     HYPERCALL(hypfs_op, 5),
 #endif
+#ifdef CONFIG_IOREQ_SERVER
+    HYPERCALL(dm_op, 3),
+#endif
 };
 
 #ifndef NDEBUG
@@ -1955,6 +1959,9 @@ static void do_trap_stage2_abort_guest(struct cpu_user_regs *regs,
             case IO_HANDLED:
                 advance_pc(regs, hsr);
                 return;
+            case IO_RETRY:
+                /* finish later */
+                return;
             case IO_UNHANDLED:
                 /* IO unhandled, try another way to handle it. */
                 break;
@@ -2252,6 +2259,12 @@ static void check_for_pcpu_work(void)
 static void check_for_vcpu_work(void)
 {
     struct vcpu *v = current;
+
+#ifdef CONFIG_IOREQ_SERVER
+    local_irq_enable();
+    handle_io_completion(v);
+    local_irq_disable();
+#endif
 
     if ( likely(!v->arch.need_flush_to_ram) )
         return;
