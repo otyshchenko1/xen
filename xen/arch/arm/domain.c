@@ -14,6 +14,7 @@
 #include <xen/grant_table.h>
 #include <xen/hypercall.h>
 #include <xen/init.h>
+#include <xen/ioreq.h>
 #include <xen/lib.h>
 #include <xen/livepatch.h>
 #include <xen/sched.h>
@@ -681,6 +682,10 @@ int arch_domain_create(struct domain *d,
 
     ASSERT(config != NULL);
 
+#ifdef CONFIG_IOREQ_SERVER
+    hvm_ioreq_init(d);
+#endif
+
     /* p2m_init relies on some value initialized by the IOMMU subsystem */
     if ( (rc = iommu_domain_init(d, config->iommu_opts)) != 0 )
         goto fail;
@@ -1000,6 +1005,10 @@ int domain_relinquish_resources(struct domain *d)
         ret = tee_relinquish_resources(d);
         if (ret )
             return ret;
+
+#ifdef CONFIG_IOREQ_SERVER
+        hvm_destroy_all_ioreq_servers(d);
+#endif
 
     PROGRESS(xen):
         ret = relinquish_memory(d, &d->xenpage_list);
