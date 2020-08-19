@@ -19,6 +19,8 @@
 
 #include <xen/sched.h>
 
+#include <public/hvm/dm_op.h>
+
 struct dmop_args {
     domid_t domid;
     unsigned int nr_bufs;
