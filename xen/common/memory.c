@@ -1155,6 +1155,7 @@ static int acquire_resource(
         xen_pfn_t gfn_list[ARRAY_SIZE(mfn_list)];
         unsigned int i;
 
+#ifndef CONFIG_ARM
         /*
          * FIXME: Until foreign pages inserted into the P2M are properly
          *        reference counted, it is unsafe to allow mapping of
@@ -1162,13 +1163,14 @@ static int acquire_resource(
          */
         if ( !is_hardware_domain(currd) )
             return -EACCES;
+#endif
 
         if ( copy_from_guest(gfn_list, xmar.frame_list, xmar.nr_frames) )
             rc = -EFAULT;
 
         for ( i = 0; !rc && i < xmar.nr_frames; i++ )
         {
-            rc = set_foreign_p2m_entry(currd, gfn_list[i],
+            rc = set_foreign_p2m_entry(currd, d, gfn_list[i],
                                        _mfn(mfn_list[i]));
             /* rc should be -EIO for any iteration other than the first */
             if ( rc && i )
