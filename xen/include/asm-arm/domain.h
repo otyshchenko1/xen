@@ -11,10 +11,27 @@
 #include <asm/vgic.h>
 #include <asm/vpl011.h>
 #include <public/hvm/params.h>
+#include <public/hvm/dm_op.h>
+#include <public/hvm/ioreq.h>
+
+#define MAX_NR_IOREQ_SERVERS 8
 
 struct hvm_domain
 {
     uint64_t              params[HVM_NR_PARAMS];
+
+    /* Guest page range used for non-default ioreq servers */
+    struct {
+        unsigned long base;
+        unsigned long mask;
+        unsigned long legacy_mask; /* indexed by HVM param number */
+    } ioreq_gfn;
+
+    /* Lock protects all other values in the sub-struct and the default */
+    struct {
+        spinlock_t              lock;
+        struct hvm_ioreq_server *server[MAX_NR_IOREQ_SERVERS];
+    } ioreq_server;
 };
 
 #ifdef CONFIG_ARM_64
@@ -90,6 +107,28 @@ struct arch_domain
     void *tee;
 #endif
 }  __cacheline_aligned;
+
+enum hvm_io_completion {
+    HVMIO_no_completion,
+    HVMIO_mmio_completion,
+    HVMIO_pio_completion
+};
+
+struct hvm_vcpu_io {
+    /* I/O request in flight to device model. */
+    enum hvm_io_completion io_completion;
+    ioreq_t                io_req;
+
+    /*
+     * HVM emulation:
+     *  Linear address @mmio_gla maps to MMIO physical frame @mmio_gpfn.
+     *  The latter is known to be an MMIO frame (not RAM).
+     *  This translation is only valid for accesses as per @mmio_access.
+     */
+    struct npfec        mmio_access;
+    unsigned long       mmio_gla;
+    unsigned long       mmio_gpfn;
+};
 
 struct arch_vcpu
 {
@@ -204,6 +243,11 @@ struct arch_vcpu
      */
     bool need_flush_to_ram;
 
+    struct hvm_vcpu
+    {
+        struct hvm_vcpu_io hvm_io;
+    } hvm;
+
 }  __cacheline_aligned;
 
 void vcpu_show_execution_state(struct vcpu *);
@@ -261,6 +305,8 @@ static inline void free_vcpu_guest_context(struct vcpu_guest_context *vgc)
 static inline void arch_vcpu_block(struct vcpu *v) {}
 
 #define arch_vm_assist_valid_mask(d) (1UL << VMASST_TYPE_runstate_update_flag)
+
+#define has_vpci(d)    ({ (void)(d); false; })
 
 #endif /* __ASM_DOMAIN_H__ */
 
