@@ -42,6 +42,8 @@ void arch_hvm_ioreq_destroy(struct domain *d);
 #define IOREQ_IO_UNHANDLED   X86EMUL_UNHANDLEABLE
 #define IOREQ_IO_RETRY       X86EMUL_RETRY
 
+#define ioreq_handle_complete_mmio   handle_mmio
+
 #endif /* __ASM_X86_HVM_IOREQ_H__ */
 
 /*
