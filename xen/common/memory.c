@@ -1099,7 +1099,8 @@ static int acquire_resource(
      *        reference counted, it is unsafe to allow mapping of
      *        resource pages unless the caller is the hardware domain.
      */
-    if ( paging_mode_translate(currd) && !is_hardware_domain(currd) )
+    if ( paging_mode_translate(currd) && !is_hardware_domain(currd) &&
+         !arch_refcounts_p2m() )
         return -EACCES;
 
     if ( copy_from_guest(&xmar, arg, 1) )
@@ -1168,7 +1169,7 @@ static int acquire_resource(
 
         for ( i = 0; !rc && i < xmar.nr_frames; i++ )
         {
-            rc = set_foreign_p2m_entry(currd, gfn_list[i],
+            rc = set_foreign_p2m_entry(currd, d, gfn_list[i],
                                        _mfn(mfn_list[i]));
             /* rc should be -EIO for any iteration other than the first */
             if ( rc && i )
