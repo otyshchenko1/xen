@@ -57,6 +57,11 @@ struct hvm_ioreq_server {
     uint8_t                bufioreq_handling;
 };
 
+static inline bool hvm_domain_has_ioreq_server(const struct domain *d)
+{
+    return (d->arch.hvm.ioreq_server.nr_servers > 0);
+}
+
 #define GET_IOREQ_SERVER(d, id) \
     (d)->arch.hvm.ioreq_server.server[id]
 

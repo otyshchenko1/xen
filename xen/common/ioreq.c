@@ -38,9 +38,15 @@ static void set_ioreq_server(struct domain *d, unsigned int id,
                              struct hvm_ioreq_server *s)
 {
     ASSERT(id < MAX_NR_IOREQ_SERVERS);
-    ASSERT(!s || !d->arch.hvm.ioreq_server.server[id]);
+    ASSERT((!s && d->arch.hvm.ioreq_server.server[id]) ||
+           (s && !d->arch.hvm.ioreq_server.server[id]));
 
     d->arch.hvm.ioreq_server.server[id] = s;
+
+    if ( s )
+        d->arch.hvm.ioreq_server.nr_servers ++;
+    else
+        d->arch.hvm.ioreq_server.nr_servers --;
 }
 
 /*
@@ -1395,6 +1401,7 @@ unsigned int hvm_broadcast_ioreq(ioreq_t *p, bool buffered)
 void hvm_ioreq_init(struct domain *d)
 {
     spin_lock_init(&d->arch.hvm.ioreq_server.lock);
+    d->arch.hvm.ioreq_server.nr_servers = 0;
 
     arch_hvm_ioreq_init(d);
 }

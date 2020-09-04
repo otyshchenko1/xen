@@ -77,6 +77,7 @@ struct hvm_domain {
     struct {
         spinlock_t              lock;
         struct hvm_ioreq_server *server[MAX_NR_IOREQ_SERVERS];
+        unsigned int            nr_servers;
     } ioreq_server;
 
     /* Cached CF8 for guest PCI config cycles */
