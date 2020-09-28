@@ -63,6 +63,8 @@ struct hvm_pi_ops {
     void (*vcpu_block)(struct vcpu *);
 };
 
+#define ioreq_params(d, i) ((d)->arch.hvm.params[i])
+
 struct hvm_domain {
     /* Cached CF8 for guest PCI config cycles */
     uint32_t                pci_cf8;
