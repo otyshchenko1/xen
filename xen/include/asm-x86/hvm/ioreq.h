@@ -26,11 +26,11 @@
 
 #include <public/hvm/params.h>
 
-static inline bool arch_hvm_io_completion(enum hvm_io_completion io_completion)
+static inline bool arch_hvm_io_completion(enum io_completion io_completion)
 {
     switch ( io_completion )
     {
-    case HVMIO_realmode_completion:
+    case IO_realmode_completion:
     {
         struct hvm_emulate_ctxt ctxt;
 

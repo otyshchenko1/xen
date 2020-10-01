@@ -143,6 +143,19 @@ void evtchn_destroy_final(struct domain *d); /* from complete_domain_destroy */
 
 struct waitqueue_vcpu;
 
+enum io_completion {
+    IO_no_completion,
+    IO_mmio_completion,
+    IO_pio_completion,
+    IO_realmode_completion
+};
+
+struct vcpu_io {
+    /* I/O request in flight to device model. */
+    enum io_completion   io_completion;
+    ioreq_t              io_req;
+};
+
 struct vcpu
 {
     int              vcpu_id;
@@ -254,6 +267,10 @@ struct vcpu
     struct vpci_vcpu vpci;
 
     struct arch_vcpu arch;
+
+#ifdef CONFIG_IOREQ_SERVER
+    struct vcpu_io io;
+#endif
 };
 
 struct sched_unit {
