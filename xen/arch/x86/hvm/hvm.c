@@ -546,7 +546,7 @@ void hvm_do_resume(struct vcpu *v)
 
     pt_restore_timer(v);
 
-    if ( !handle_hvm_io_completion(v) )
+    if ( !handle_io_completion(v) )
         return;
 
     if ( unlikely(v->arch.vm_event) )
@@ -677,7 +677,7 @@ int hvm_domain_initialise(struct domain *d)
     register_g2m_portio_handler(d);
     register_vpci_portio_handler(d);
 
-    hvm_ioreq_init(d);
+    ioreq_init(d);
 
     hvm_init_guest_time(d);
 
@@ -739,7 +739,7 @@ void hvm_domain_relinquish_resources(struct domain *d)
 
     viridian_domain_deinit(d);
 
-    hvm_destroy_all_ioreq_servers(d);
+    destroy_all_ioreq_servers(d);
 
     msixtbl_pt_cleanup(d);
 
@@ -1582,7 +1582,7 @@ int hvm_vcpu_initialise(struct vcpu *v)
     if ( rc )
         goto fail5;
 
-    rc = hvm_all_ioreq_servers_add_vcpu(d, v);
+    rc = all_ioreq_servers_add_vcpu(d, v);
     if ( rc != 0 )
         goto fail6;
 
@@ -1618,7 +1618,7 @@ void hvm_vcpu_destroy(struct vcpu *v)
 {
     viridian_vcpu_deinit(v);
 
-    hvm_all_ioreq_servers_remove_vcpu(v->domain, v);
+    all_ioreq_servers_remove_vcpu(v->domain, v);
 
     if ( hvm_altp2m_supported() )
         altp2m_vcpu_destroy(v);
