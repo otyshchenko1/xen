@@ -26,7 +26,7 @@
 
 #include <public/hvm/params.h>
 
-static inline bool arch_hvm_io_completion(enum io_completion io_completion)
+static inline bool arch_io_completion(enum io_completion io_completion)
 {
     switch ( io_completion )
     {
@@ -50,7 +50,7 @@ static inline bool arch_hvm_io_completion(enum io_completion io_completion)
 }
 
 /* Called when target domain is paused */
-static inline void arch_hvm_destroy_ioreq_server(struct ioreq_server *s)
+static inline void arch_destroy_ioreq_server(struct ioreq_server *s)
 {
     p2m_set_ioreq_server(s->target, 0, s);
 }
@@ -105,10 +105,10 @@ static inline int hvm_map_mem_type_to_ioreq_server(struct domain *d,
     return rc;
 }
 
-static inline int hvm_ioreq_server_get_type_addr(const struct domain *d,
-                                                 const ioreq_t *p,
-                                                 uint8_t *type,
-                                                 uint64_t *addr)
+static inline int ioreq_server_get_type_addr(const struct domain *d,
+                                             const ioreq_t *p,
+                                             uint8_t *type,
+                                             uint64_t *addr)
 {
     uint32_t cf8 = d->arch.hvm.pci_cf8;
 
@@ -164,12 +164,12 @@ static inline int hvm_access_cf8(
     return X86EMUL_UNHANDLEABLE;
 }
 
-static inline void arch_hvm_ioreq_init(struct domain *d)
+static inline void arch_ioreq_init(struct domain *d)
 {
     register_portio_handler(d, 0xcf8, 4, hvm_access_cf8);
 }
 
-static inline bool arch_hvm_ioreq_destroy(struct domain *d)
+static inline bool arch_ioreq_destroy(struct domain *d)
 {
     if ( !relocate_portio_handler(d, 0xcf8, 0xcf8, 4) )
         return false;
