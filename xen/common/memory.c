@@ -1070,7 +1070,7 @@ static int acquire_ioreq_server(struct domain *d,
     {
         mfn_t mfn;
 
-        rc = hvm_get_ioreq_server_frame(d, id, frame + i, &mfn);
+        rc = get_ioreq_server_frame(d, id, frame + i, &mfn);
         if ( rc )
             return rc;
 
