@@ -39,9 +39,14 @@ static void set_ioreq_server(struct domain *d, unsigned int id,
                              struct ioreq_server *s)
 {
     ASSERT(id < MAX_NR_IOREQ_SERVERS);
-    ASSERT(!s || !d->ioreq_server.server[id]);
+    ASSERT(d->ioreq_server.server[id] ? !s : !!s);
 
     d->ioreq_server.server[id] = s;
+
+    if ( s )
+        d->ioreq_server.nr_servers++;
+    else
+        d->ioreq_server.nr_servers--;
 }
 
 #define GET_IOREQ_SERVER(d, id) \
