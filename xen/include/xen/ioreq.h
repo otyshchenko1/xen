@@ -55,6 +55,20 @@ struct ioreq_server {
     uint8_t                bufioreq_handling;
 };
 
+#ifdef CONFIG_IOREQ_SERVER
+static inline bool domain_has_ioreq_server(const struct domain *d)
+{
+    ASSERT((current->domain == d) || atomic_read(&d->pause_count));
+
+    return d->ioreq_server.nr_servers;
+}
+#else
+static inline bool domain_has_ioreq_server(const struct domain *d)
+{
+    return false;
+}
+#endif
+
 struct ioreq_server *get_ioreq_server(const struct domain *d,
                                       unsigned int id);
 
