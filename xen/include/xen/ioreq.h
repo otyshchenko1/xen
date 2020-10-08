@@ -126,6 +126,7 @@ struct ioreq_server *select_ioreq_server(struct domain *d,
 int send_ioreq(struct ioreq_server *s, ioreq_t *proto_p,
                bool buffered);
 unsigned int broadcast_ioreq(ioreq_t *p, bool buffered);
+void send_invalidate_ioreq(void);
 
 void ioreq_init(struct domain *d);
 
