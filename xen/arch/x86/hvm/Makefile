@@ -13,7 +13,6 @@ obj-y += hvm.o
 obj-y += hypercall.o
 obj-y += intercept.o
 obj-y += io.o
-obj-y += ioreq.o
 obj-y += irq.o
 obj-y += monitor.o
 obj-y += mtrr.o
