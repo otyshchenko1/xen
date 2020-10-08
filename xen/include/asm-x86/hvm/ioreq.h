@@ -50,7 +50,7 @@ static inline bool arch_hvm_io_completion(enum hvm_io_completion io_completion)
 }
 
 /* Called when target domain is paused */
-static inline void arch_hvm_destroy_ioreq_server(struct hvm_ioreq_server *s)
+static inline void arch_hvm_destroy_ioreq_server(struct ioreq_server *s)
 {
     p2m_set_ioreq_server(s->target, 0, s);
 }
@@ -68,7 +68,7 @@ static inline int hvm_map_mem_type_to_ioreq_server(struct domain *d,
                                                    uint32_t type,
                                                    uint32_t flags)
 {
-    struct hvm_ioreq_server *s;
+    struct ioreq_server *s;
     int rc;
 
     if ( type != HVMMEM_ioreq_server )
