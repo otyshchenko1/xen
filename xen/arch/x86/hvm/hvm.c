@@ -4218,20 +4218,20 @@ static int hvm_set_param(struct domain *d, uint32_t index, uint64_t value)
             rc = -EINVAL;
         break;
     case HVM_PARAM_IOREQ_SERVER_PFN:
-        d->arch.hvm.ioreq_gfn.base = value;
+        d->ioreq_gfn.base = value;
         break;
     case HVM_PARAM_NR_IOREQ_SERVER_PAGES:
     {
         unsigned int i;
 
         if ( value == 0 ||
-             value > sizeof(d->arch.hvm.ioreq_gfn.mask) * 8 )
+             value > sizeof(d->ioreq_gfn.mask) * 8 )
         {
             rc = -EINVAL;
             break;
         }
         for ( i = 0; i < value; i++ )
-            set_bit(i, &d->arch.hvm.ioreq_gfn.mask);
+            set_bit(i, &d->ioreq_gfn.mask);
 
         break;
     }
@@ -4239,11 +4239,11 @@ static int hvm_set_param(struct domain *d, uint32_t index, uint64_t value)
     case HVM_PARAM_IOREQ_PFN:
     case HVM_PARAM_BUFIOREQ_PFN:
         BUILD_BUG_ON(HVM_PARAM_IOREQ_PFN >
-                     sizeof(d->arch.hvm.ioreq_gfn.legacy_mask) * 8);
+                     sizeof(d->ioreq_gfn.legacy_mask) * 8);
         BUILD_BUG_ON(HVM_PARAM_BUFIOREQ_PFN >
-                     sizeof(d->arch.hvm.ioreq_gfn.legacy_mask) * 8);
+                     sizeof(d->ioreq_gfn.legacy_mask) * 8);
         if ( value )
-            set_bit(index, &d->arch.hvm.ioreq_gfn.legacy_mask);
+            set_bit(index, &d->ioreq_gfn.legacy_mask);
         break;
 
     case HVM_PARAM_X87_FIP_WIDTH:
