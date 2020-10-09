@@ -1,6 +1,7 @@
 #include <xen/cpu.h>
 #include <xen/domain_page.h>
 #include <xen/iocap.h>
+#include <xen/ioreq.h>
 #include <xen/lib.h>
 #include <xen/sched.h>
 #include <xen/softirq.h>
@@ -1067,7 +1068,14 @@ static int __p2m_set_entry(struct p2m_domain *p2m,
      */
     if ( p2m_is_valid(orig_pte) &&
          !mfn_eq(lpae_get_mfn(*entry), lpae_get_mfn(orig_pte)) )
+    {
+#ifdef CONFIG_IOREQ_SERVER
+        if ( domain_has_ioreq_server(p2m->domain) &&
+             (p2m->domain == current->domain) && p2m_is_ram(orig_pte.p2m.type) )
+            p2m->domain->qemu_mapcache_invalidate = true;
+#endif
         p2m_free_entry(p2m, orig_pte, level);
+    }
 
 out:
     unmap_domain_page(table);
