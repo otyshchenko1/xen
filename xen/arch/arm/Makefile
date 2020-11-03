@@ -82,10 +82,15 @@ else
 all_symbols =
 endif
 
+ifeq ($(armds),y)
+$(TARGET): $(TARGET)-syms
+	fromelf --bin $< --output $@
+else
 $(TARGET): $(TARGET)-syms
 	$(OBJCOPY) -O binary -S $< $@
 ifeq ($(CONFIG_ARM_64),y)
 	ln -sf $(notdir $@)  ../../$(notdir $@).efi
+endif
 endif
 
 ifeq ($(CONFIG_LTO),y)
@@ -103,6 +108,19 @@ endif
 
 targets += prelink.o
 
+ifeq ($(armds),y)
+$(TARGET)-syms: prelink.o xen.scat
+	armlink --scatter="xen.scat" --edit="xen.steer" --no_scanlib $(LDFLAGS) prelink.o $(BASEDIR)/common/symbols-dummy.o -o $(@D)/.$(@F).0
+	$(NM) -pa --format=sysv $(@D)/.$(@F).0 \
+		| $(BASEDIR)/tools/symbols $(all_symbols) --sysv --sort >$(@D)/.$(@F).0.S
+	$(MAKE) -f $(BASEDIR)/Rules.mk $(@D)/.$(@F).0.o
+	armlink --scatter="xen.scat" --edit="xen.steer" --no_scanlib $(LDFLAGS) prelink.o $(@D)/.$(@F).0.o -o $(@D)/.$(@F).1
+	$(NM) -pa --format=sysv $(@D)/.$(@F).1 \
+		| $(BASEDIR)/tools/symbols $(all_symbols) --sysv --sort >$(@D)/.$(@F).1.S
+	$(MAKE) -f $(BASEDIR)/Rules.mk $(@D)/.$(@F).1.o
+	armlink --scatter="xen.scat" --edit="xen.steer" --no_scanlib --symdefs="$(@D)/$(@F).map" $(LDFLAGS) prelink.o $(build_id_linker) $(@D)/.$(@F).1.o -o $@
+	rm -f $(@D)/.$(@F).[0-9]*
+else
 $(TARGET)-syms: prelink.o xen.lds
 	$(LD) $(XEN_LDFLAGS) -T xen.lds -N prelink.o \
 	    $(BASEDIR)/common/symbols-dummy.o -o $(@D)/.$(@F).0
@@ -120,12 +138,18 @@ $(TARGET)-syms: prelink.o xen.lds
 		| $(BASEDIR)/tools/symbols --all-symbols --xensyms --sysv --sort \
 		>$(@D)/$(@F).map
 	rm -f $(@D)/.$(@F).[0-9]*
+endif
 
 asm-offsets.s: $(TARGET_SUBARCH)/asm-offsets.c
 	$(CC) $(filter-out -flto,$(c_flags)) -S -o $@ $<
 
+ifeq ($(armds),y)
+xen.scat: xen.scat.S
+	$(CC) -P -E --target=aarch64-arm-none-eabi -o $@ $<
+else
 xen.lds: xen.lds.S
 	$(CPP) -P $(a_flags) -MQ $@ -o $@ $<
+endif
 
 dtb.o: $(CONFIG_DTB_FILE)
 
