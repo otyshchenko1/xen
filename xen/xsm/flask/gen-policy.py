@@ -21,3 +21,7 @@ sys.stdout.write("""
 };
 const unsigned int __initconst xsm_flask_init_policy_size = %d;
 """ % policy_size)
+
+sys.stdout.write("""
+void policy_dummy_func(void) {}
+""")

@@ -40,6 +40,8 @@ static const struct dt_device_match rpi4_blacklist_dev[] __initconst =
     { /* sentinel */ },
 };
 
+void brcm_raspberry_pi_dummy_func(void) {}
+
 PLATFORM_START(rpi4, "Raspberry Pi 4")
     .compatible     = rpi4_dt_compat,
     .blacklist_dev  = rpi4_blacklist_dev,
