@@ -136,7 +136,9 @@ ifeq ($(TARGET_ARCH),x86)
 
 # Older clang's built-in assembler doesn't understand .skip with labels:
 # https://bugs.llvm.org/show_bug.cgi?id=27369
+ifneq ($(armds),y)
 t1 = $(call as-insn,$(CC),".L0: .L1: .skip (.L1 - .L0)",,-no-integrated-as)
+endif
 
 # Check whether clang asm()-s support .include.
 t2 = $(call as-insn,$(CC) -I$(BASEDIR)/include,".include \"asm-x86/indirect_thunk_asm.h\"",,-no-integrated-as)
