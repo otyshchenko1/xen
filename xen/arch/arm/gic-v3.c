@@ -1328,14 +1328,14 @@ static const hw_irq_controller gicv3_guest_irq_type = {
     .set_affinity = gicv3_irq_set_affinity,
 };
 
-static paddr_t __initdata dbase = INVALID_PADDR;
-static paddr_t __initdata vbase = INVALID_PADDR, vsize = 0;
-static paddr_t __initdata cbase = INVALID_PADDR, csize = 0;
+static paddr_t __initdata dbase_v3 = INVALID_PADDR;
+static paddr_t __initdata vbase_v3 = INVALID_PADDR, vsize_v3 = 0;
+static paddr_t __initdata cbase_v3 = INVALID_PADDR, csize_v3 = 0;
 
 /* If the GICv3 supports GICv2, initialize it */
 static void __init gicv3_init_v2(void)
 {
-    if ( cbase == INVALID_PADDR || vbase == INVALID_PADDR )
+    if ( cbase_v3 == INVALID_PADDR || vbase_v3 == INVALID_PADDR )
         return;
 
     /*
@@ -1343,26 +1343,26 @@ static void __init gicv3_init_v2(void)
      * So only support GICv2 on GICv3 when the virtual CPU interface is
      * at least GUEST_GICC_SIZE.
      */
-    if ( vsize < GUEST_GICC_SIZE )
+    if ( vsize_v3 < GUEST_GICC_SIZE )
     {
         printk(XENLOG_WARNING
                "GICv3: WARNING: Not enabling support for GICv2 compat mode.\n"
                "Size of GICV (%#"PRIpaddr") must at least be %#llx.\n",
-               vsize, GUEST_GICC_SIZE);
+               vsize_v3, GUEST_GICC_SIZE);
         return;
     }
 
     printk("GICv3 compatible with GICv2 cbase %#"PRIpaddr" vbase %#"PRIpaddr"\n",
-           cbase, vbase);
+           cbase_v3, vbase_v3);
 
-    vgic_v2_setup_hw(dbase, cbase, csize, vbase, 0);
+    vgic_v2_setup_hw(dbase_v3, cbase_v3, csize_v3, vbase_v3, 0);
 }
 
 static void __init gicv3_ioremap_distributor(paddr_t dist_paddr)
 {
     if ( dist_paddr & ~PAGE_MASK )
         panic("GICv3:  Found unaligned distributor address %"PRIpaddr"\n",
-              dbase);
+              dbase_v3);
 
     gicv3.map_dbase = ioremap_nocache(dist_paddr, SZ_64K);
     if ( !gicv3.map_dbase )
@@ -1375,11 +1375,11 @@ static void __init gicv3_dt_init(void)
     int res, i;
     const struct dt_device_node *node = gicv3_info.node;
 
-    res = dt_device_get_address(node, 0, &dbase, NULL);
+    res = dt_device_get_address(node, 0, &dbase_v3, NULL);
     if ( res )
         panic("GICv3: Cannot find a valid distributor address\n");
 
-    gicv3_ioremap_distributor(dbase);
+    gicv3_ioremap_distributor(dbase_v3);
 
     if ( !dt_property_read_u32(node, "#redistributor-regions",
                 &gicv3.rdist_count) )
@@ -1416,10 +1416,10 @@ static void __init gicv3_dt_init(void)
      * provided.
      */
     res = dt_device_get_address(node, 1 + gicv3.rdist_count,
-                                &cbase, &csize);
+                                &cbase_v3, &csize_v3);
     if ( !res )
         dt_device_get_address(node, 1 + gicv3.rdist_count + 2,
-                              &vbase, &vsize);
+                              &vbase_v3, &vsize_v3);
 }
 
 static int gicv3_iomem_deny_access(const struct domain *d)
@@ -1427,7 +1427,7 @@ static int gicv3_iomem_deny_access(const struct domain *d)
     int rc, i;
     unsigned long mfn, nr;
 
-    mfn = dbase >> PAGE_SHIFT;
+    mfn = dbase_v3 >> PAGE_SHIFT;
     nr = PFN_UP(SZ_64K);
     rc = iomem_deny_access(d, mfn, mfn + nr);
     if ( rc )
@@ -1446,19 +1446,19 @@ static int gicv3_iomem_deny_access(const struct domain *d)
             return rc;
     }
 
-    if ( cbase != INVALID_PADDR )
+    if ( cbase_v3 != INVALID_PADDR )
     {
-        mfn = cbase >> PAGE_SHIFT;
-        nr = PFN_UP(csize);
+        mfn = cbase_v3 >> PAGE_SHIFT;
+        nr = PFN_UP(csize_v3);
         rc = iomem_deny_access(d, mfn, mfn + nr);
         if ( rc )
             return rc;
     }
 
-    if ( vbase != INVALID_PADDR )
+    if ( vbase_v3 != INVALID_PADDR )
     {
-        mfn = vbase >> PAGE_SHIFT;
-        nr = PFN_UP(csize);
+        mfn = vbase_v3 >> PAGE_SHIFT;
+        nr = PFN_UP(csize_v3);
         return iomem_deny_access(d, mfn, mfn + nr);
     }
 
@@ -1564,8 +1564,8 @@ gic_acpi_parse_madt_cpu(struct acpi_subtable_header *header,
     /* Read from APIC table and fill up the GIC variables */
     if ( !cpu_base_assigned )
     {
-        cbase = processor->base_address;
-        vbase = processor->gicv_base_address;
+        cbase_v3 = processor->base_address;
+        vbase_v3 = processor->gicv_base_address;
         gicv3_info.maintenance_irq = processor->vgic_interrupt;
 
         if ( processor->flags & ACPI_MADT_VGIC_IRQ_MODE )
@@ -1577,8 +1577,8 @@ gic_acpi_parse_madt_cpu(struct acpi_subtable_header *header,
     }
     else
     {
-        if ( cbase != processor->base_address
-             || vbase != processor->gicv_base_address
+        if ( cbase_v3 != processor->base_address
+             || vbase_v3 != processor->gicv_base_address
              || gicv3_info.maintenance_irq != processor->vgic_interrupt )
         {
             printk("GICv3: GICC entries are not same in MADT table\n");
@@ -1599,7 +1599,7 @@ gic_acpi_parse_madt_distributor(struct acpi_subtable_header *header,
     if ( BAD_MADT_ENTRY(dist, end) )
         return -EINVAL;
 
-    dbase = dist->base_address;
+    dbase_v3 = dist->base_address;
 
     return 0;
 }
@@ -1674,7 +1674,7 @@ static void __init gicv3_acpi_init(void)
     if ( count <= 0 )
         panic("GICv3: No valid GICD entries exists\n");
 
-    gicv3_ioremap_distributor(dbase);
+    gicv3_ioremap_distributor(dbase_v3);
 
     /* Get number of redistributor */
     count = acpi_table_parse_madt(ACPI_MADT_TYPE_GENERIC_REDISTRIBUTOR,
@@ -1722,15 +1722,15 @@ static void __init gicv3_acpi_init(void)
      * Also set the size of the GICC and GICV when there base address
      * is not invalid as those values are not present in ACPI.
      */
-    if ( !cbase )
-        cbase = INVALID_PADDR;
+    if ( !cbase_v3 )
+        cbase_v3 = INVALID_PADDR;
     else
-        csize = SZ_8K;
+        csize_v3 = SZ_8K;
 
-    if ( !vbase )
-        vbase = INVALID_PADDR;
+    if ( !vbase_v3 )
+        vbase_v3 = INVALID_PADDR;
     else
-        vsize = GUEST_GICC_SIZE;
+        vsize_v3 = GUEST_GICC_SIZE;
 
 }
 #else
@@ -1789,7 +1789,7 @@ static int __init gicv3_init(void)
            "      gic_maintenance_irq=%u\n"
            "      gic_rdist_stride=%#x\n"
            "      gic_rdist_regions=%d\n",
-           dbase, gicv3_info.maintenance_irq,
+           dbase_v3, gicv3_info.maintenance_irq,
            gicv3.rdist_stride, gicv3.rdist_count);
     printk("      redistributor regions:\n");
     for ( i = 0; i < gicv3.rdist_count; i++ )
@@ -1803,7 +1803,7 @@ static int __init gicv3_init(void)
     reg = readl_relaxed(GICD + GICD_TYPER);
     intid_bits = GICD_TYPE_ID_BITS(reg);
 
-    vgic_v3_setup_hw(dbase, gicv3.rdist_count, gicv3.rdist_regions, intid_bits);
+    vgic_v3_setup_hw(dbase_v3, gicv3.rdist_count, gicv3.rdist_regions, intid_bits);
     gicv3_init_v2();
 
     spin_lock_init(&gicv3.lock);
