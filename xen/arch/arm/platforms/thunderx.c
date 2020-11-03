@@ -33,6 +33,8 @@ static const struct dt_device_match thunderx_blacklist_dev[] __initconst =
     { /* sentinel */ },
 };
 
+void thunderx_dummy_func(void) {}
+
 PLATFORM_START(thunderx, "THUNDERX")
     .compatible = thunderx_dt_compat,
     .blacklist_dev = thunderx_blacklist_dev,

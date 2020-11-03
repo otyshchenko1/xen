@@ -46,7 +46,6 @@ static const struct dt_device_match rpi4_blacklist_dev[] __initconst =
     { /* sentinel */ },
 };
 
-
 #define PM_PASSWORD                 0x5a000000
 #define PM_RSTC                     0x1c
 #define PM_WDOG                     0x24
@@ -99,6 +98,8 @@ static void rpi4_reset(void)
     /* No sleeping, possibly atomic. */
     mdelay(1);
 }
+
+void brcm_raspberry_pi_dummy_func(void) {}
 
 PLATFORM_START(rpi4, "Raspberry Pi 4")
     .compatible     = rpi4_dt_compat,
