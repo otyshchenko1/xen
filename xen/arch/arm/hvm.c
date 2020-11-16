@@ -31,6 +31,10 @@
 
 #include <asm/hypercall.h>
 
+/*
+ * The legacy interface (which involves magic IOREQ pages) *must* not be used
+ * without revisiting the code.
+ */
 static int hvm_allow_set_param(const struct domain *d, unsigned int param)
 {
     switch ( param )
