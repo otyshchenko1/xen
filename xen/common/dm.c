@@ -100,8 +100,8 @@ static int dm_op(const struct dmop_args *op_args)
         if ( data->pad[0] || data->pad[1] || data->pad[2] )
             break;
 
-        rc = hvm_create_ioreq_server(d, data->handle_bufioreq,
-                                     &data->id);
+        rc = ioreq_server_create(d, data->handle_bufioreq,
+                                 &data->id);
         break;
     }
 
@@ -117,12 +117,12 @@ static int dm_op(const struct dmop_args *op_args)
         if ( data->flags & ~valid_flags )
             break;
 
-        rc = hvm_get_ioreq_server_info(d, data->id,
-                                       (data->flags & XEN_DMOP_no_gfns) ?
-                                       NULL : (unsigned long *)&data->ioreq_gfn,
-                                       (data->flags & XEN_DMOP_no_gfns) ?
-                                       NULL : (unsigned long *)&data->bufioreq_gfn,
-                                       &data->bufioreq_port);
+        rc = ioreq_server_get_info(d, data->id,
+                                   (data->flags & XEN_DMOP_no_gfns) ?
+                                   NULL : (unsigned long *)&data->ioreq_gfn,
+                                   (data->flags & XEN_DMOP_no_gfns) ?
+                                   NULL : (unsigned long *)&data->bufioreq_gfn,
+                                   &data->bufioreq_port);
         break;
     }
 
@@ -135,8 +135,8 @@ static int dm_op(const struct dmop_args *op_args)
         if ( data->pad )
             break;
 
-        rc = hvm_map_io_range_to_ioreq_server(d, data->id, data->type,
-                                              data->start, data->end);
+        rc = ioreq_server_map_io_range(d, data->id, data->type,
+                                       data->start, data->end);
         break;
     }
 
@@ -149,8 +149,8 @@ static int dm_op(const struct dmop_args *op_args)
         if ( data->pad )
             break;
 
-        rc = hvm_unmap_io_range_from_ioreq_server(d, data->id, data->type,
-                                                  data->start, data->end);
+        rc = ioreq_server_unmap_io_range(d, data->id, data->type,
+                                         data->start, data->end);
         break;
     }
 
@@ -163,7 +163,7 @@ static int dm_op(const struct dmop_args *op_args)
         if ( data->pad )
             break;
 
-        rc = hvm_set_ioreq_server_state(d, data->id, !!data->enabled);
+        rc = ioreq_server_set_state(d, data->id, !!data->enabled);
         break;
     }
 
@@ -176,7 +176,7 @@ static int dm_op(const struct dmop_args *op_args)
         if ( data->pad )
             break;
 
-        rc = hvm_destroy_ioreq_server(d, data->id);
+        rc = ioreq_server_destroy(d, data->id);
         break;
     }
 
