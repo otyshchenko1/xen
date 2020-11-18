@@ -316,6 +316,8 @@ struct sched_unit {
 
 struct evtchn_port_ops;
 
+#define MAX_NR_IOREQ_SERVERS 8
+
 struct domain
 {
     domid_t          domain_id;
@@ -522,6 +524,14 @@ struct domain
 #ifdef CONFIG_ARGO
     /* Argo interdomain communication support */
     struct argo_domain *argo;
+#endif
+
+#ifdef CONFIG_IOREQ_SERVER
+    /* Lock protects all other values in the sub-struct and the default */
+    struct {
+        spinlock_t              lock;
+        struct ioreq_server     *server[MAX_NR_IOREQ_SERVERS];
+    } ioreq_server;
 #endif
 };
 
