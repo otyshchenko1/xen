@@ -55,6 +55,20 @@ struct ioreq_server {
     uint8_t                bufioreq_handling;
 };
 
+/*
+ * This should only be used when d == current->domain and it's not paused,
+ * or when they're distinct and d is paused. Otherwise the result is
+ * stale before the caller can inspect it.
+ */
+static inline bool domain_has_ioreq_server(const struct domain *d)
+{
+#ifdef CONFIG_IOREQ_SERVER
+    return d->ioreq_server.nr_servers;
+#else
+    return false;
+#endif
+}
+
 static inline paddr_t ioreq_mmio_first_byte(const ioreq_t *p)
 {
     return unlikely(p->df) ?
