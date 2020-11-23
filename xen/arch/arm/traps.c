@@ -2257,18 +2257,23 @@ static void check_for_pcpu_work(void)
  * Process pending work for the vCPU. Any call should be fast or
  * implement preemption.
  */
-static void check_for_vcpu_work(void)
+static bool check_for_vcpu_work(void)
 {
     struct vcpu *v = current;
 
 #ifdef CONFIG_IOREQ_SERVER
+    bool handled;
+
     local_irq_enable();
-    vcpu_ioreq_handle_completion(v);
+    handled = vcpu_ioreq_handle_completion(v);
     local_irq_disable();
+
+    if ( !handled )
+        return true;
 #endif
 
     if ( likely(!v->arch.need_flush_to_ram) )
-        return;
+        return false;
 
     /*
      * Give a chance for the pCPU to process work before handling the vCPU
@@ -2279,6 +2284,8 @@ static void check_for_vcpu_work(void)
     local_irq_enable();
     p2m_flush_vm(v);
     local_irq_disable();
+
+    return false;
 }
 
 /*
@@ -2291,8 +2298,29 @@ void leave_hypervisor_to_guest(void)
 {
     local_irq_disable();
 
-    check_for_vcpu_work();
-    check_for_pcpu_work();
+    /*
+     * The reason to use an unbounded loop here is the fact that vCPU
+     * shouldn't continue until the I/O has completed.
+     *
+     * The worse that can happen here if the vCPU will never run again
+     * (the I/O will never complete). But, in Xen case, if the I/O never
+     * completes then it most likely means that something went horribly
+     * wrong with the Device Emulator. And it is most likely not safe
+     * to continue. So letting the vCPU to spin forever if the I/O never
+     * completes is a safer action than letting it continue and leaving
+     * the guest in unclear state and is the best what we can do for now.
+     *
+     * Please note, using this loop we will not spin forever on a pCPU,
+     * preventing any other vCPUs from being scheduled. At every loop
+     * we will call check_for_pcpu_work() that will process pending
+     * softirqs. In case of failure, the guest will crash and the vCPU
+     * will be unscheduled. In normal case, if the rescheduling is necessary
+     * (might be set by a timer or by a caller in check_for_vcpu_work(),
+     * the vCPU will be rescheduled to give place to someone else.
+     */
+    do {
+        check_for_pcpu_work();
+    } while ( check_for_vcpu_work() );
 
     vgic_sync_to_lrs();
 
