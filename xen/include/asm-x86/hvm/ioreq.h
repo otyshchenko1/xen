@@ -21,7 +21,7 @@
 
 #include <xen/ioreq.h>
 
-bool arch_vcpu_ioreq_completion(enum hvm_io_completion io_completion);
+bool arch_vcpu_ioreq_completion(enum io_completion io_completion);
 int arch_ioreq_server_map_pages(struct ioreq_server *s);
 void arch_ioreq_server_unmap_pages(struct ioreq_server *s);
 void arch_ioreq_server_enable(struct ioreq_server *s);
