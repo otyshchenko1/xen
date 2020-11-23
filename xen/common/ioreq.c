@@ -159,7 +159,7 @@ static bool hvm_wait_for_io(struct ioreq_vcpu *sv, ioreq_t *p)
         break;
     }
 
-    p = &sv->vcpu->arch.hvm.hvm_io.io_req;
+    p = &sv->vcpu->io.req;
     if ( ioreq_needs_completion(p) )
         p->data = data;
 
@@ -171,10 +171,10 @@ static bool hvm_wait_for_io(struct ioreq_vcpu *sv, ioreq_t *p)
 bool handle_hvm_io_completion(struct vcpu *v)
 {
     struct domain *d = v->domain;
-    struct hvm_vcpu_io *vio = &v->arch.hvm.hvm_io;
+    struct vcpu_io *vio = &v->io;
     struct ioreq_server *s;
     struct ioreq_vcpu *sv;
-    enum hvm_io_completion io_completion;
+    enum io_completion io_completion;
 
     if ( has_vpci(d) && vpci_process_pending(v) )
     {
@@ -186,26 +186,26 @@ bool handle_hvm_io_completion(struct vcpu *v)
     if ( sv && !hvm_wait_for_io(sv, get_ioreq(s, v)) )
         return false;
 
-    vio->io_req.state = ioreq_needs_completion(&vio->io_req) ?
+    vio->req.state = ioreq_needs_completion(&vio->req) ?
         STATE_IORESP_READY : STATE_IOREQ_NONE;
 
     msix_write_completion(v);
     vcpu_end_shutdown_deferral(v);
 
-    io_completion = vio->io_completion;
-    vio->io_completion = HVMIO_no_completion;
+    io_completion = vio->completion;
+    vio->completion = IO_no_completion;
 
     switch ( io_completion )
     {
-    case HVMIO_no_completion:
+    case IO_no_completion:
         break;
 
-    case HVMIO_mmio_completion:
+    case IO_mmio_completion:
         return ioreq_complete_mmio();
 
-    case HVMIO_pio_completion:
-        return handle_pio(vio->io_req.addr, vio->io_req.size,
-                          vio->io_req.dir);
+    case IO_pio_completion:
+        return handle_pio(vio->req.addr, vio->req.size,
+                          vio->req.dir);
 
     default:
         return arch_vcpu_ioreq_completion(io_completion);
