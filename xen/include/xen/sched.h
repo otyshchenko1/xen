@@ -552,6 +552,8 @@ struct domain
         struct ioreq_server     *server[MAX_NR_IOREQ_SERVERS];
         unsigned int            nr_servers;
     } ioreq_server;
+
+    bool mapcache_invalidate;
 #endif
 };
 
