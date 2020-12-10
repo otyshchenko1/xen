@@ -118,7 +118,7 @@ unsigned int hvm_broadcast_ioreq(ioreq_t *p, bool buffered);
 void hvm_ioreq_init(struct domain *d);
 
 bool arch_ioreq_complete_mmio(void);
-bool arch_vcpu_ioreq_completion(enum hvm_io_completion io_completion);
+bool arch_vcpu_ioreq_completion(enum vio_completion completion);
 int arch_ioreq_server_map_pages(struct ioreq_server *s);
 void arch_ioreq_server_unmap_pages(struct ioreq_server *s);
 void arch_ioreq_server_enable(struct ioreq_server *s);
