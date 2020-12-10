@@ -77,6 +77,11 @@ bool arch_ioreq_server_get_type_addr(const struct domain *d,
                                      uint64_t *addr);
 void arch_ioreq_domain_init(struct domain *d);
 
+/* This correlation must not be altered */
+#define IOREQ_STATUS_HANDLED     X86EMUL_OKAY
+#define IOREQ_STATUS_UNHANDLED   X86EMUL_UNHANDLEABLE
+#define IOREQ_STATUS_RETRY       X86EMUL_RETRY
+
 #endif /* __ASM_X86_HVM_IOREQ_H__ */
 
 /*
