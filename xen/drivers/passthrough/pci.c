@@ -1476,9 +1476,11 @@ static int iommu_add_device(struct pci_dev *pdev)
 
 #ifdef CONFIG_ARM
     pci_to_dev(pdev)->type = DEV_PCI;
-#endif
+    rc = iommu_add_pci_device(pdev->devfn, pdev);
+#else
     rc = hd->platform_ops->add_device(pdev->devfn, pci_to_dev(pdev));
-    if ( rc || !pdev->phantom_stride )
+#endif
+    if ( rc < 0 || !pdev->phantom_stride )
         return rc;
 
     for ( devfn = pdev->devfn ; ; )
@@ -1486,8 +1488,12 @@ static int iommu_add_device(struct pci_dev *pdev)
         devfn += pdev->phantom_stride;
         if ( PCI_SLOT(devfn) != PCI_SLOT(pdev->devfn) )
             return 0;
+#ifdef CONFIG_ARM
+        rc = iommu_add_pci_device(devfn, pdev);
+#else
         rc = hd->platform_ops->add_device(devfn, pci_to_dev(pdev));
-        if ( rc )
+#endif
+        if ( rc < 0 )
             printk(XENLOG_WARNING "IOMMU: add %pp failed (%d)\n",
                    &pdev->sbdf, rc);
     }
