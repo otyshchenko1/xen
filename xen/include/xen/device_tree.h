@@ -452,6 +452,13 @@ struct dt_device_node *dt_find_node_by_alias(const char *alias);
  */
 struct dt_device_node *dt_find_node_by_path(const char *path);
 
+/**
+ * dt_find_node_by_phandle - Find a node given a phandle
+ * @handle: phandle of the node to find
+ *
+ * Returns a node pointer.
+ */
+struct dt_device_node *dt_find_node_by_phandle(dt_phandle handle);
 
 /**
  * dt_find_node_by_gpath - Same as dt_find_node_by_path but retrieve the
