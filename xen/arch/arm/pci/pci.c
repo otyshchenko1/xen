@@ -21,6 +21,13 @@
 #include <xen/pci.h>
 #include <xen/param.h>
 
+struct pci_dev *dev_to_pci(struct device *dev)
+{
+    struct arch_pci_dev *arch_dev =
+        container_of((dev), struct arch_pci_dev, dev);
+    return container_of(arch_dev, struct pci_dev, arch);
+}
+
 static int __init dt_pci_init(void)
 {
     struct dt_device_node *np;
