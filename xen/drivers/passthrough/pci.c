@@ -1481,7 +1481,12 @@ static int iommu_add_device(struct pci_dev *pdev)
     rc = hd->platform_ops->add_device(pdev->devfn, pci_to_dev(pdev));
 #endif
     if ( rc < 0 || !pdev->phantom_stride )
+    {
+        if ( rc < 0 )
+            printk(XENLOG_WARNING "IOMMU: add %pp failed (%d)\n",
+                   &pdev->sbdf, rc);
         return rc;
+    }
 
     for ( devfn = pdev->devfn ; ; )
     {
@@ -1859,7 +1864,7 @@ static int _enum_assigned_pci_devices(struct pci_seg *pseg, void *arg)
 
     list_for_each_entry ( pdev, &pseg->alldevs_list, alldevs_list )
     {
-        if ( pdev->assigned == ctxt->assigned )
+        if ( pdev->assigned && ctxt->assigned )
         {
             if ( ctxt->cur_idx == ctxt->from_idx )
             {
