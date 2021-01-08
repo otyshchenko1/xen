@@ -415,8 +415,8 @@ static int dm_op(const struct dmop_args *op_args)
             break;
 
         if ( first_gfn == 0 )
-            rc = hvm_map_mem_type_to_ioreq_server(d, data->id,
-                                                  data->type, data->flags);
+            rc = ioreq_server_map_mem_type(d, data->id,
+                                           data->type, data->flags);
         else
             rc = 0;
 
