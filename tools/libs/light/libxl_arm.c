@@ -500,7 +500,9 @@ static int make_memory_nodes(libxl__gc *gc, void *fdt,
 {
     int res, i;
     const char *name;
-    const uint64_t bankbase[] = GUEST_RAM_BANK_BASES;
+    uint64_t guest_rambase = (uint64_t)dom->rambase_pfn << XC_PAGE_SHIFT;
+
+    const uint64_t bankbase[] = {guest_rambase, GUEST_RAM1_BASE};
 
     for (i = 0; i < GUEST_RAM_BANKS; i++) {
         name = GCSPRINTF("memory@%"PRIx64, bankbase[i]);
@@ -1163,7 +1165,9 @@ int libxl__arch_domain_finalise_hw_description(libxl__gc *gc,
 {
     void *fdt = dom->devicetree_blob;
     int i;
-    const uint64_t bankbase[] = GUEST_RAM_BANK_BASES;
+    uint64_t guest_rambase = (uint64_t)dom->rambase_pfn << XC_PAGE_SHIFT;
+
+    const uint64_t bankbase[] = {guest_rambase, GUEST_RAM1_BASE};
 
     const struct xc_dom_seg *ramdisk = dom->modules[0].blob ?
         &dom->modules[0].seg : NULL;

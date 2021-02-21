@@ -562,7 +562,7 @@ static int libxl__build_dom(libxl__gc *gc, uint32_t domid,
         goto out;
     }
 #ifdef GUEST_RAM_BASE
-    if ( (ret = xc_dom_rambase_init(dom, GUEST_RAM_BASE)) != 0 ) {
+    if ( (ret = xc_dom_rambase_init(dom, info->rambase)) != 0 ) {
         LOGE(ERROR, "xc_dom_rambase failed");
         goto out;
     }
