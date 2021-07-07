@@ -739,7 +739,42 @@ struct xen_vnuma_topology_info {
 typedef struct xen_vnuma_topology_info xen_vnuma_topology_info_t;
 DEFINE_XEN_GUEST_HANDLE(xen_vnuma_topology_info_t);
 
-/* Next available subop number is 29 */
+/*
+ * Get the unallocated space (regions of guest physical address space which
+ * are unused) and can be used to create grant/foreign mappings.
+ */
+#define XENMEM_get_unallocated_space 29
+struct xen_unallocated_region {
+    xen_pfn_t start_gpfn;
+    xen_ulong_t nr_gpfns;
+};
+typedef struct xen_unallocated_region xen_unallocated_region_t;
+DEFINE_XEN_GUEST_HANDLE(xen_unallocated_region_t);
+
+#define XEN_MAX_UNALLOCATED_REGIONS 32
+
+struct xen_get_unallocated_space {
+    /* IN - Which domain to provide unallocated space for */
+    domid_t domid;
+
+    /*
+     * IN/OUT - As an IN parameter number of memory regions which
+     *          can be written to the buffer (maximum size of the array)
+     *          As OUT parameter number of memory regions which
+     *          have been written to the buffer
+     */
+    unsigned int nr_regions;
+
+    /*
+     * OUT - An array of memory regions, the regions must be placed in
+     *       ascending order, there must be no overlap between them.
+     */
+    XEN_GUEST_HANDLE(xen_unallocated_region_t) buffer;
+};
+typedef struct xen_get_unallocated_space xen_get_unallocated_space_t;
+DEFINE_XEN_GUEST_HANDLE(xen_get_unallocated_space_t);
+
+/* Next available subop number is 30 */
 
 #endif /* __XEN_PUBLIC_MEMORY_H__ */
 

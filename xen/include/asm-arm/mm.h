@@ -359,6 +359,10 @@ void clear_and_clean_page(struct page_info *page);
 
 unsigned int arch_get_dma_bitsize(void);
 
+int arch_get_unallocated_space(struct domain *d,
+                               struct xen_unallocated_region *regions,
+                               unsigned int *nr_regions);
+
 #endif /*  __ARCH_ARM_MM__ */
 /*
  * Local variables:

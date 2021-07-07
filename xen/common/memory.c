@@ -1811,6 +1811,62 @@ long do_memory_op(unsigned long cmd, XEN_GUEST_HANDLE_PARAM(void) arg)
             start_extent);
         break;
 
+    case XENMEM_get_unallocated_space:
+    {
+        struct xen_get_unallocated_space xgus;
+        struct xen_unallocated_region *regions;
+
+        if ( unlikely(start_extent) )
+            return -EINVAL;
+
+        if ( copy_from_guest(&xgus, arg, 1) ||
+             !guest_handle_okay(xgus.buffer, xgus.nr_regions) )
+            return -EFAULT;
+
+        d = rcu_lock_domain_by_any_id(xgus.domid);
+        if ( d == NULL )
+            return -ESRCH;
+
+        rc = xsm_get_unallocated_space(XSM_HOOK, d);
+        if ( rc )
+        {
+            rcu_unlock_domain(d);
+            return rc;
+        }
+
+        if ( !xgus.nr_regions || xgus.nr_regions > XEN_MAX_UNALLOCATED_REGIONS )
+        {
+            rcu_unlock_domain(d);
+            return -EINVAL;
+        }
+
+        regions = xzalloc_array(struct xen_unallocated_region, xgus.nr_regions);
+        if ( !regions )
+        {
+            rcu_unlock_domain(d);
+            return -ENOMEM;
+        }
+
+        rc = arch_get_unallocated_space(d, regions, &xgus.nr_regions);
+        if ( rc )
+            goto unallocated_out;
+
+        if ( __copy_to_guest(xgus.buffer, regions, xgus.nr_regions) )
+        {
+            rc = -EFAULT;
+            goto unallocated_out;
+        }
+
+        if ( __copy_to_guest(arg, &xgus, 1) )
+            rc = -EFAULT;
+
+unallocated_out:
+        rcu_unlock_domain(d);
+        xfree(regions);
+
+        break;
+    }
+
     default:
         rc = arch_memory_op(cmd, arg);
         break;

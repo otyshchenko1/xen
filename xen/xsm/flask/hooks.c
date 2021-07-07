@@ -1715,6 +1715,11 @@ static int flask_domain_resource_map(struct domain *d)
     return current_has_perm(d, SECCLASS_DOMAIN2, DOMAIN2__RESOURCE_MAP);
 }
 
+static int flask_get_unallocated_space(struct domain *d)
+{
+    return current_has_perm(d, SECCLASS_DOMAIN2, DOMAIN2__GET_UNALLOCATED_SPACE);
+}
+
 #ifdef CONFIG_ARGO
 static int flask_argo_enable(const struct domain *d)
 {
@@ -1875,6 +1880,7 @@ static struct xsm_operations flask_ops = {
     .dm_op = flask_dm_op,
     .xen_version = flask_xen_version,
     .domain_resource_map = flask_domain_resource_map,
+    .get_unallocated_space = flask_get_unallocated_space,
 #ifdef CONFIG_ARGO
     .argo_enable = flask_argo_enable,
     .argo_register_single_source = flask_argo_register_single_source,
