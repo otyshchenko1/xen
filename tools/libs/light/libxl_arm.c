@@ -699,6 +699,52 @@ static int make_memory_nodes(libxl__gc *gc, void *fdt,
     return 0;
 }
 
+#define RESTRICTED_DMA_BASE   0x200000000
+#define RESTRICTED_DMA_SIZE   0x10000000
+
+static int make_reserved_memory_node(libxl__gc *gc, void *fdt,
+                                     const struct xc_dom_image *dom)
+{
+    int res;
+
+    LOG(DEBUG, "Creating reserved-memory node in dtb");
+
+    res = fdt_begin_node(fdt, "reserved-memory");
+    if (res) return res;
+
+    res = fdt_property_cell(fdt, "#address-cells", GUEST_ROOT_ADDRESS_CELLS);
+    if (res) return res;
+
+    res = fdt_property_cell(fdt, "#size-cells", GUEST_ROOT_SIZE_CELLS);
+    if (res) return res;
+
+    res = fdt_property(fdt, "ranges", NULL, 0);
+    if (res) return res;
+
+    if (1) {
+        res = fdt_begin_node(fdt, "restricted_dma_reserved");
+        if (res) return res;
+
+        res = fdt_property_compat(gc, fdt, 1, "restricted-dma-pool");
+        if (res) return res;
+
+        res = fdt_property_cell(fdt, "phandle", GUEST_PHANDLE_GIC + 1);
+        if (res) return res;
+
+        res = fdt_property_regs(gc, fdt, GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
+                                1, RESTRICTED_DMA_BASE, RESTRICTED_DMA_SIZE);
+        if (res) return res;
+
+        res = fdt_end_node(fdt);
+        if (res) return res;
+    }
+
+    res = fdt_end_node(fdt);
+    if (res) return res;
+
+    return 0;
+}
+
 static int make_gicv2_node(libxl__gc *gc, void *fdt,
                            uint64_t gicd_base, uint64_t gicd_size,
                            uint64_t gicc_base, uint64_t gicc_size)
@@ -979,6 +1025,13 @@ static int make_virtio_mmio_node(libxl__gc *gc, void *fdt,
         iommus_prop[0] = cpu_to_fdt32(phandle);
         iommus_prop[1] = cpu_to_fdt32(GUEST_VIRTIO_MMIO_IOMMU_ID);
         res = fdt_property(fdt, "iommus", iommus_prop, sizeof(iommus_prop));
+        if (res) return res;
+    } else {
+        uint32_t memory_region[1];
+
+        memory_region[0] = cpu_to_fdt32(GUEST_PHANDLE_GIC + 1);
+        res = fdt_property(fdt, "memory-region", memory_region,
+                           sizeof(memory_region));
         if (res) return res;
     }
 
@@ -1320,12 +1373,15 @@ next_resize:
         for (i = 0; i < d_config->num_disks; i++) {
             libxl_device_disk *disk = &d_config->disks[i];
 
-            if (disk->virtio)
+            if (disk->virtio) {
+                if (!viommu_phandle)
+                    FDT( make_reserved_memory_node(gc, fdt, dom) );
                 FDT( make_virtio_mmio_node(gc, fdt, viommu_phandle
                                            ? VIRTIO_DEV_WITH_IOMMU
                                            : VIRTIO_DEV_WITHOUT_IOMMU,
                                            viommu_phandle,
                                            disk->base, disk->irq) );
+            }
         }
 
         if (pfdt)

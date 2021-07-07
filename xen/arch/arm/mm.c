@@ -1457,8 +1457,12 @@ int xenmem_add_to_physmap_one(
         }
 
 #ifdef CONFIG_VIRTIO_IOMMU
+#define RESTRICTED_DMA_BASE   0x200000000
+#define RESTRICTED_DMA_SIZE   0x10000000
+
         if ( !is_hardware_domain(d) &&
-             !viommu_gfn_foreign_access_permitted(d, od, idx, 1) )
+             (idx < PFN_DOWN(RESTRICTED_DMA_BASE) ||
+              idx > PFN_DOWN(RESTRICTED_DMA_BASE + RESTRICTED_DMA_SIZE - 1)) )
         {
             gprintk(XENLOG_ERR, "Deny dom%d access to dom%d GFN 0x%lx\n",
                     d->domain_id, od->domain_id, idx);
