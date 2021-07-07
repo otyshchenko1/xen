@@ -245,6 +245,8 @@ class domain2
     resource_map
 # XEN_DOMCTL_get_cpu_policy
     get_cpu_policy
+# XENMEM_get_unallocated_space
+    get_unallocated_space
 }
 
 # Similar to class domain, but primarily contains domctls related to HVM domains

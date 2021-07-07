@@ -772,3 +772,9 @@ static XSM_INLINE int xsm_domain_resource_map(XSM_DEFAULT_ARG struct domain *d)
     XSM_ASSERT_ACTION(XSM_DM_PRIV);
     return xsm_default_action(action, current->domain, d);
 }
+
+static XSM_INLINE int xsm_get_unallocated_space(XSM_DEFAULT_ARG struct domain *d)
+{
+    XSM_ASSERT_ACTION(XSM_HOOK);
+    return xsm_default_action(action, current->domain, d);
+}

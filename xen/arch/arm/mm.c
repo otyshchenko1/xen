@@ -1635,6 +1635,24 @@ unsigned long get_upper_mfn_bound(void)
     return max_page - 1;
 }
 
+#define GPFN_ALIGN_TO_GB(x) (((x) + (1UL << 18) - 1) & (~((1UL << 18) - 1)))
+
+int arch_get_unallocated_space(struct domain *d,
+                               struct xen_unallocated_region *regions,
+                               unsigned int *nr_regions)
+{
+    /*
+     * Everything not mapped into P2M could be treated as unused. Taking into
+     * the account that we have a lot of unallocated space above max_mapped_gfn
+     * and in order to simplify things, just provide a single 8GB memory
+     * region aligned to 1GB boundary for now.
+     */
+    regions->start_gpfn = GPFN_ALIGN_TO_GB(domain_get_maximum_gpfn(d) + 1);
+    regions->nr_gpfns = (1UL << 18) * 8;
+    *nr_regions = 1;
+
+    return 0;
+}
 /*
  * Local variables:
  * mode: C
