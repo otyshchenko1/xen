@@ -652,4 +652,12 @@ static inline bool arch_mfn_in_directmap(unsigned long mfn)
     return mfn <= (virt_to_mfn(eva - 1) + 1);
 }
 
+static inline
+int arch_get_unallocated_space(struct domain *d,
+                               struct xen_unallocated_region *regions,
+                               unsigned int *nr_regions)
+{
+    return -EOPNOTSUPP;
+}
+
 #endif /* __ASM_X86_MM_H__ */
