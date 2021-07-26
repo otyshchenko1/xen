@@ -31,3 +31,4 @@ allow domD_t domU_t_channel:event create;
 allow domD_t domU_t:hvm dm;
 allow domD_t xen_t:xen physinfo;
 allow domD_t domD_t_self:domain2 get_unallocated_space;
+allow domD_t domU_t:domain getdomaininfo;
