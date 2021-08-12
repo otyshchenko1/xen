@@ -221,6 +221,8 @@ static void output_physinfo(void)
          info.cap_vmtrace ? " vmtrace" : ""
         );
 
+    maybe_printf("gpaddr_bits            : %d\n", info.gpaddr_bits);
+
     vinfo = libxl_get_version_info(ctx);
     if (vinfo) {
         i = (1 << 20) / vinfo->pagesize;
