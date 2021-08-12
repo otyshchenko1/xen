@@ -405,6 +405,8 @@ int libxl_get_physinfo(libxl_ctx *ctx, libxl_physinfo *physinfo)
     physinfo->cap_vmtrace =
         !!(xcphysinfo.capabilities & XEN_SYSCTL_PHYSCAP_vmtrace);
 
+    physinfo->gpaddr_bits = xcphysinfo.gpaddr_bits;
+
     GC_FREE;
     return 0;
 }

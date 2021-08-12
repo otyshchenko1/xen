@@ -862,6 +862,13 @@ typedef struct libxl__ctx libxl_ctx;
 #define LIBXL_HAVE_PHYSINFO_MAX_POSSIBLE_MFN 1
 
 /*
+ * LIBXL_HAVE_PHYSINFO_GPADDR_BITS
+ *
+ * If this is defined, libxl_physinfo has a "gpaddr_bits" field.
+ */
+#define LIBXL_HAVE_PHYSINFO_GPADDR_BITS 1
+
+/*
  * LIBXL_HAVE_DOMINFO_OUTSTANDING_MEMKB 1
  *
  * If this is defined, libxl_dominfo will contain a MemKB type field called
