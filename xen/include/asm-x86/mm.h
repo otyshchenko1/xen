@@ -327,6 +327,8 @@ struct page_info
 
 #define maddr_get_owner(ma)   (page_get_owner(maddr_to_page((ma))))
 
+#define page_arch_init(_p)    do {} while ( 0 )
+
 #define frame_table ((struct page_info *)FRAMETABLE_VIRT_START)
 extern unsigned long max_page;
 extern unsigned long total_pages;

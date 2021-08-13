@@ -1021,6 +1021,7 @@ static struct page_info *alloc_heap_pages(
 
         /* Initialise fields which have other uses for free pages. */
         pg[i].u.inuse.type_info = 0;
+        page_arch_init(&pg[i]);
         page_set_owner(&pg[i], NULL);
 
     }

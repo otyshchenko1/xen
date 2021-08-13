@@ -39,7 +39,15 @@ struct page_info
         /* Page is in use: ((count_info & PGC_count_mask) != 0). */
         struct {
             /* Type reference count and various PGT_xxx flags and fields. */
-            unsigned long type_info;
+            unsigned long type_info:4;
+
+            /*
+             * Stored GFN if page is used for grant table frame
+             * (bits 59(27)-0).
+             */
+#define PGT_FRAME_GFN_WIDTH      (BITS_PER_LONG - 4)
+#define PGT_INVALID_FRAME_GFN    _gfn((1UL << PGT_FRAME_GFN_WIDTH) - 1)
+            unsigned long frame_gfn:PGT_FRAME_GFN_WIDTH;
         } inuse;
         /* Page is on a free list: ((count_info & PGC_count_mask) == 0). */
         union {
@@ -94,12 +102,12 @@ struct page_info
 #define PG_shift(idx)   (BITS_PER_LONG - (idx))
 #define PG_mask(x, idx) (x ## UL << PG_shift(idx))
 
-#define PGT_none          PG_mask(0, 1)  /* no special uses of this page   */
-#define PGT_writable_page PG_mask(1, 1)  /* has writable mappings?         */
-#define PGT_type_mask     PG_mask(1, 1)  /* Bits 31 or 63.                 */
+#define PGT_none          (0UL << 3)  /* no special uses of this page   */
+#define PGT_writable_page (1UL << 3)  /* has writable mappings?         */
+#define PGT_type_mask     (1UL << 3)
 
  /* Count of uses of this frame as its current type. */
-#define PGT_count_width   PG_shift(2)
+#define PGT_count_width   1
 #define PGT_count_mask    ((1UL<<PGT_count_width)-1)
 
  /* Cleared when the owning guest 'frees' this page. */
@@ -162,6 +170,15 @@ extern unsigned long xenheap_base_pdx;
 #define page_set_owner(_p,_d) ((_p)->v.inuse.domain = (_d))
 
 #define maddr_get_owner(ma)   (page_get_owner(maddr_to_page((ma))))
+
+#define page_get_frame_gfn(_p) ({                               \
+    gfn_t gfn_ = _gfn((_p)->u.inuse.frame_gfn);                 \
+    gfn_eq(gfn_, PGT_INVALID_FRAME_GFN) ? INVALID_GFN : gfn_;   \
+})
+
+#define page_set_frame_gfn(_p, _gfn) ((_p)->u.inuse.frame_gfn = gfn_x(_gfn))
+
+#define page_arch_init(_p)   page_set_frame_gfn(_p, INVALID_GFN)
 
 #define frame_table ((struct page_info *)FRAMETABLE_VIRT_START)
 /* PDX of the first page in the frame table. */
