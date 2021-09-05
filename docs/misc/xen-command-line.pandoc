@@ -1081,6 +1081,13 @@ hardware domain is architecture dependent.
 Note that specifying zero as domU value means zero, while for dom0 it means
 to use the default.
 
+### ext_regions (Arm)
+> `= <boolean>`
+
+> Default : `true`
+
+Flag to globally enable or disable support for extended regions for dom0.
+
 ### flask
 > `= permissive | enforcing | late | disabled`
 
