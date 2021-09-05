@@ -615,9 +615,23 @@ static int make_hypervisor_node(libxl__gc *gc, void *fdt,
                               "xen,xen");
     if (res) return res;
 
-    /* reg 0 is grant table space */
+    /*
+     * reg 0 is a placeholder for grant table space, reg 1 is a placeholder
+     * for the extended region.
+     */
     res = fdt_property_regs(gc, fdt, GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
-                            1,GUEST_GNTTAB_BASE, GUEST_GNTTAB_SIZE);
+                            2, 0, 0, 0, 0);
+    if (res) return res;
+
+    /*
+     * TODO: It would be correct to advertise that we provide the extended
+     * region after allocating it in finalise_ext_region(). The reason why we do
+     * this right now (in advance) is because we cannot insert a properly in
+     * finalise_ext_region(), but we have a mechanism to remove it there.
+     * So, if we are not able to allocate the region later on, we will remove
+     * the property.
+     */
+    res = fdt_property(fdt, "extended-region", NULL, 0);
     if (res) return res;
 
     /*
@@ -1069,6 +1083,78 @@ static void finalise_one_node(libxl__gc *gc, void *fdt, const char *uname,
     }
 }
 
+#define ALIGN_UP_TO_GB(x)   (((x) + GB(1) - 1) & (~(GB(1) - 1)))
+
+#define EXT_REGION_SIZE   GB(128)
+
+static void finalise_ext_region(libxl__gc *gc, struct xc_dom_image *dom)
+{
+    void *fdt = dom->devicetree_blob;
+    uint32_t regs[(GUEST_ROOT_ADDRESS_CELLS + GUEST_ROOT_SIZE_CELLS) * 2];
+    be32 *cells = &regs[0];
+    uint64_t region_size = 0, region_base, bank1end_align, bank1end_max;
+    uint32_t gpaddr_bits;
+    libxl_physinfo info;
+    int offset, rc;
+
+    offset = fdt_path_offset(fdt, "/hypervisor");
+    assert(offset > 0);
+
+    if (strcmp(dom->guest_type, "xen-3.0-aarch64")) {
+        LOG(WARN, "The extended region is only supported for 64-bit guest");
+        goto out;
+    }
+
+    rc = libxl_get_physinfo(CTX, &info);
+    assert(!rc);
+
+    gpaddr_bits = info.gpaddr_bits;
+    assert(gpaddr_bits >= 32 && gpaddr_bits <= 48);
+
+    /*
+     * Try to allocate single 1GB-aligned extended region from the second RAM
+     * bank (above 4GB) taking into the account the maximum supported guest
+     * address space size and the amount of memory assigned to the guest.
+     * The maximum size of the region is 128GB.
+     */
+    bank1end_max = min(1ULL << gpaddr_bits, GUEST_RAM1_BASE + GUEST_RAM1_SIZE);
+    bank1end_align = GUEST_RAM1_BASE +
+        ALIGN_UP_TO_GB((uint64_t)dom->rambank_size[1] << XC_PAGE_SHIFT);
+
+    if (bank1end_max <= bank1end_align) {
+        LOG(WARN, "The extended region cannot be allocated, not enough space");
+        goto out;
+    }
+
+    if (bank1end_max - bank1end_align > EXT_REGION_SIZE) {
+        region_base = bank1end_max - EXT_REGION_SIZE;
+        region_size = EXT_REGION_SIZE;
+    } else {
+        region_base = bank1end_align;
+        region_size = bank1end_max - bank1end_align;
+    }
+
+out:
+    /*
+     * The first region for grant table space must be always present.
+     * If we managed to allocate the extended region then insert it as
+     * a second region. Otherwise, remove the property that advertises it.
+     */
+    set_range(&cells, GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
+              GUEST_GNTTAB_BASE, GUEST_GNTTAB_SIZE);
+    if (region_size > 0) {
+        LOG(DEBUG, "Extended region: %#"PRIx64"->%#"PRIx64"\n",
+            region_base, region_base + region_size);
+
+        set_range(&cells, GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
+                  region_base, region_size);
+    } else
+        fdt_nop_property(fdt, offset, "extended-region");
+
+    rc = fdt_setprop_inplace(fdt, offset, "reg", regs, sizeof(regs));
+    assert(!rc);
+}
+
 int libxl__arch_domain_finalise_hw_description(libxl__gc *gc,
                                                uint32_t domid,
                                                libxl_domain_config *d_config,
@@ -1108,6 +1194,8 @@ int libxl__arch_domain_finalise_hw_description(libxl__gc *gc,
         assert(!res);
 
     }
+
+    finalise_ext_region(gc, dom);
 
     for (i = 0; i < GUEST_RAM_BANKS; i++) {
         const uint64_t size = (uint64_t)dom->rambank_size[i] << XC_PAGE_SHIFT;
