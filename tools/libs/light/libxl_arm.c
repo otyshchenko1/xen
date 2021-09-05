@@ -600,9 +600,21 @@ static int make_timer_node(libxl__gc *gc, void *fdt,
     return 0;
 }
 
+#define ALIGN_UP_TO_2MB(x)   (((x) + MB(2) - 1) & (~(MB(2) - 1)))
+
 static int make_hypervisor_node(libxl__gc *gc, void *fdt,
-                                const libxl_version_info *vers)
+                                const libxl_version_info *vers,
+                                const libxl_domain_build_info *b_info,
+                                const struct xc_dom_image *dom)
 {
+    uint64_t region_size[GUEST_RAM_BANKS] = {0}, region_base[GUEST_RAM_BANKS],
+        banksize[GUEST_RAM_BANKS], bankend[GUEST_RAM_BANKS], ramsize;
+    uint32_t regs[(GUEST_ROOT_ADDRESS_CELLS + GUEST_ROOT_SIZE_CELLS) *
+                  (GUEST_RAM_BANKS + 1)];
+    be32 *cells = &regs[0];
+    const uint64_t bankbase[] = GUEST_RAM_BANK_BASES;
+    unsigned int i, len, nr_regions = 0;
+    uint8_t gpaddr_bits;
     int res;
     gic_interrupt intr;
 
@@ -617,9 +629,67 @@ static int make_hypervisor_node(libxl__gc *gc, void *fdt,
                               "xen,xen");
     if (res) return res;
 
-    /* reg 0 is grant table space */
-    res = fdt_property_regs(gc, fdt, GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
-                            1,GUEST_GNTTAB_BASE, GUEST_GNTTAB_SIZE);
+    if (strcmp(dom->guest_type, "xen-3.0-aarch64")) {
+        LOG(WARN, "The extended regions are only supported for 64-bit guest currently");
+        goto out;
+    }
+
+    gpaddr_bits = b_info->arch_arm.gpaddr_bits;
+    assert(gpaddr_bits >= 32 && gpaddr_bits <= 48);
+
+    /*
+     * Try to allocate separate 2MB-aligned extended regions from the first
+     * (below 4GB) and second (above 4GB) RAM banks taking into the account
+     * the maximum supported guest physical address space size and the amount
+     * of memory assigned to the guest.
+     * As the guest memory layout is not populated yet we cannot rely on
+     * dom->rambank_size[], so calculate the actual size of both banks using
+     * "max_memkb" value.
+     */
+    ramsize = b_info->max_memkb * 1024;
+    if (ramsize <= GUEST_RAM0_SIZE) {
+        banksize[0] = ramsize;
+        banksize[1] = 0;
+    } else {
+        banksize[0] = GUEST_RAM0_SIZE;
+        banksize[1] = ramsize - GUEST_RAM0_SIZE;
+    }
+
+    bankend[0] = GUEST_RAM0_BASE + GUEST_RAM0_SIZE;
+    bankend[1] = min(1ULL << gpaddr_bits, GUEST_RAM1_BASE + GUEST_RAM1_SIZE);
+
+    for (i = 0; i < GUEST_RAM_BANKS; i++) {
+        region_base[i] = bankbase[i] + ALIGN_UP_TO_2MB(banksize[i]);
+        if (bankend[i] > region_base[i])
+            region_size[i] = bankend[i] - region_base[i];
+    }
+
+out:
+    /*
+     * The region 0 for grant table space must be always present. If we managed
+     * to allocate the extended regions then insert them as regions 1...N.
+     */
+    set_range(&cells, GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
+              GUEST_GNTTAB_BASE, GUEST_GNTTAB_SIZE);
+
+    for (i = 0; i < GUEST_RAM_BANKS; i++) {
+        if (region_size[i] < GUEST_EXT_REGION_MIN_SIZE)
+            continue;
+
+        LOG(DEBUG, "Extended region %u: %#"PRIx64"->%#"PRIx64"\n",
+            nr_regions, region_base[i], region_base[i] + region_size[i]);
+
+        set_range(&cells, GUEST_ROOT_ADDRESS_CELLS, GUEST_ROOT_SIZE_CELLS,
+                  region_base[i], region_size[i]);
+        nr_regions ++;
+    }
+
+    if (!nr_regions)
+        LOG(WARN, "The extended regions cannot be allocated, not enough space");
+
+    len = sizeof(regs[0]) * (GUEST_ROOT_ADDRESS_CELLS + GUEST_ROOT_SIZE_CELLS) *
+        (nr_regions + 1);
+    res = fdt_property(fdt, "reg", regs, len);
     if (res) return res;
 
     /*
@@ -965,7 +1035,7 @@ next_resize:
         }
 
         FDT( make_timer_node(gc, fdt, ainfo, state->clock_frequency) );
-        FDT( make_hypervisor_node(gc, fdt, vers) );
+        FDT( make_hypervisor_node(gc, fdt, vers, info, dom) );
 
         if (info->arch_arm.vuart == LIBXL_VUART_TYPE_SBSA_UART)
             FDT( make_vpl011_uart_node(gc, fdt, ainfo, dom) );
