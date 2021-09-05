@@ -449,6 +449,9 @@ typedef uint64_t xen_callback_t;
 #define GUEST_RAM_BANK_BASES   { GUEST_RAM0_BASE, GUEST_RAM1_BASE }
 #define GUEST_RAM_BANK_SIZES   { GUEST_RAM0_SIZE, GUEST_RAM1_SIZE }
 
+#define GUEST_EXT_REGION_MAX_SIZE   xen_mk_ullong(0x2000000000) /* 128GB */
+#define GUEST_EXT_REGION_MIN_SIZE   xen_mk_ullong(0x0004000000) /* 64MB */
+
 /* Current supported guest VCPUs */
 #define GUEST_MAX_VCPUS 128
 
