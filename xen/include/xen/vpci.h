@@ -92,6 +92,8 @@ struct vpci {
 
         /* Offset to the ROM BAR register if any. */
         unsigned int rom_reg;
+        /* Guest view of the PCI_COMMAND register. */
+        uint16_t guest_cmd;
 
         /*
          * Store whether the ROM enable bit is set (doesn't imply ROM BAR
