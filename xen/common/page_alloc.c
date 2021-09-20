@@ -1588,6 +1588,40 @@ static int reserve_heap_page(struct page_info *pg)
 
 }
 
+/* TODO heap_lock? */
+int for_each_avail_page(int (*cb)(struct page_info *, unsigned int, void *),
+                        void *data)
+{
+    unsigned int node, zone, order;
+    int ret;
+
+    for ( node = 0; node < MAX_NUMNODES; node++ )
+    {
+        if ( !avail[node] )
+            continue;
+
+        for ( zone = 0; zone < NR_ZONES; zone++ )
+        {
+            for ( order = 0; order <= MAX_ORDER; order++ )
+            {
+                struct page_info *head, *tmp;
+
+                if ( page_list_empty(&heap(node, zone, order)) )
+                    continue;
+
+                page_list_for_each_safe ( head, tmp, &heap(node, zone, order) )
+                {
+                    ret = cb(head, order, data);
+                    if ( ret )
+                        return ret;
+                }
+            }
+        }
+    }
+
+    return 0;
+}
+
 int offline_page(mfn_t mfn, int broken, uint32_t *status)
 {
     unsigned long old_info = 0;

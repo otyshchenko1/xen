@@ -919,13 +919,30 @@ static int __init add_ext_regions(unsigned long s, unsigned long e, void *data)
     return 0;
 }
 
-static int __init find_unallocated_memory(const struct kernel_info *kinfo,
-                                          struct meminfo *ext_regions)
+static int __init add_unalloc_mem(struct page_info *page, unsigned int order,
+                                  void *data)
 {
-    const struct meminfo *assign_mem = &kinfo->mem;
+    struct rangeset *unalloc_mem = data;
+    paddr_t start, end;
+    int res;
+
+    start = page_to_maddr(page);
+    end = start + pfn_to_paddr(1UL << order);
+    res = rangeset_add_range(unalloc_mem, start, end - 1);
+    if ( res )
+    {
+        printk(XENLOG_ERR "Failed to add: %#"PRIx64"->%#"PRIx64"\n",
+               start, end);
+        return res;
+    }
+
+    return 0;
+}
+
+static int __init find_unallocated_memory(struct meminfo *ext_regions)
+{
     struct rangeset *unalloc_mem;
     paddr_t start, end;
-    unsigned int i;
     int res;
 
     dt_dprintk("Find unallocated memory for extended regions\n");
@@ -934,59 +951,9 @@ static int __init find_unallocated_memory(const struct kernel_info *kinfo,
     if ( !unalloc_mem )
         return -ENOMEM;
 
-    /* Start with all available RAM */
-    for ( i = 0; i < bootinfo.mem.nr_banks; i++ )
-    {
-        start = bootinfo.mem.bank[i].start;
-        end = bootinfo.mem.bank[i].start + bootinfo.mem.bank[i].size;
-        res = rangeset_add_range(unalloc_mem, start, end - 1);
-        if ( res )
-        {
-            printk(XENLOG_ERR "Failed to add: %#"PRIx64"->%#"PRIx64"\n",
-                   start, end);
-            goto out;
-        }
-    }
-
-    /* Remove RAM assigned to Dom0 */
-    for ( i = 0; i < assign_mem->nr_banks; i++ )
-    {
-        start = assign_mem->bank[i].start;
-        end = assign_mem->bank[i].start + assign_mem->bank[i].size;
-        res = rangeset_remove_range(unalloc_mem, start, end - 1);
-        if ( res )
-        {
-            printk(XENLOG_ERR "Failed to remove: %#"PRIx64"->%#"PRIx64"\n",
-                   start, end);
-            goto out;
-        }
-    }
-
-    /* Remove reserved-memory regions */
-    for ( i = 0; i < bootinfo.reserved_mem.nr_banks; i++ )
-    {
-        start = bootinfo.reserved_mem.bank[i].start;
-        end = bootinfo.reserved_mem.bank[i].start +
-            bootinfo.reserved_mem.bank[i].size;
-        res = rangeset_remove_range(unalloc_mem, start, end - 1);
-        if ( res )
-        {
-            printk(XENLOG_ERR "Failed to remove: %#"PRIx64"->%#"PRIx64"\n",
-                   start, end);
-            goto out;
-        }
-    }
-
-    /* Remove grant table region */
-    start = kinfo->gnttab_start;
-    end = kinfo->gnttab_start + kinfo->gnttab_size;
-    res = rangeset_remove_range(unalloc_mem, start, end - 1);
+    res = for_each_avail_page(add_unalloc_mem, unalloc_mem);
     if ( res )
-    {
-        printk(XENLOG_ERR "Failed to remove: %#"PRIx64"->%#"PRIx64"\n",
-               start, end);
         goto out;
-    }
 
     start = 0;
     end = (1ULL << p2m_ipa_bits) - 1;
@@ -1003,8 +970,7 @@ out:
     return res;
 }
 
-static int __init find_memory_holes(const struct kernel_info *kinfo,
-                                    struct meminfo *ext_regions)
+static int __init find_memory_holes(struct meminfo *ext_regions)
 {
     struct dt_device_node *np;
     struct rangeset *mem_holes;
@@ -1169,9 +1135,9 @@ static int __init make_hypervisor_node(struct domain *d,
     else
     {
         if ( !is_iommu_enabled(d) )
-            res = find_unallocated_memory(kinfo, ext_regions);
+            res = find_unallocated_memory(ext_regions);
         else
-            res = find_memory_holes(kinfo, ext_regions);
+            res = find_memory_holes(ext_regions);
 
         if ( res )
             printk(XENLOG_WARNING "Failed to allocate extended regions\n");
