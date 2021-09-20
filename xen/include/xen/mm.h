@@ -123,6 +123,9 @@ unsigned int online_page(mfn_t mfn, uint32_t *status);
 int offline_page(mfn_t mfn, int broken, uint32_t *status);
 int query_page_offline(mfn_t mfn, uint32_t *status);
 
+int for_each_avail_page(int (*cb)(struct page_info *, unsigned int, void *),
+                        void *data);
+
 void heap_init_late(void);
 
 int assign_pages(
