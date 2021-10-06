@@ -767,6 +767,12 @@ int arch_domain_create(struct domain *d,
     if ( is_hardware_domain(d) && (rc = domain_vuart_init(d)) )
         goto fail;
 
+    /*
+     * Pass maximum IPA bits to the toolstack, currently the same guest
+     * physical address space size is used for all guests.
+     */
+    config->arch.gpaddr_bits = p2m_ipa_bits;
+
     return 0;
 
 fail:

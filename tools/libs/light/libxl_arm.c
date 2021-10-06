@@ -123,6 +123,8 @@ int libxl__arch_domain_save_config(libxl__gc *gc,
 
     state->clock_frequency = config->arch.clock_frequency;
 
+    d_config->b_info.arch_arm.gpaddr_bits = config->arch.gpaddr_bits;
+
     return 0;
 }
 

@@ -333,6 +333,11 @@ struct xen_arch_domainconfig {
      *
      */
     uint32_t clock_frequency;
+    /*
+     * OUT
+     * Guest physical address space size
+     */
+    uint8_t gpaddr_bits;
 };
 #endif /* __XEN__ || __XEN_TOOLS__ */
 
