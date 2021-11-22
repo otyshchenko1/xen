@@ -39,6 +39,7 @@ extern vpci_register_init_t *const __end_vpci_array[];
 void vpci_remove_device(struct pci_dev *pdev)
 {
     struct vpci *vpci;
+    unsigned int i;
 
     if ( !has_vpci(pdev->domain) )
         return;
@@ -73,6 +74,10 @@ void vpci_remove_device(struct pci_dev *pdev)
             if ( pdev->vpci->msix->table[i] )
                 iounmap(pdev->vpci->msix->table[i]);
     }
+
+    for ( i = 0; i < ARRAY_SIZE(vpci->header.bars); i++ )
+        rangeset_destroy(vpci->header.bars[i].mem);
+
     xfree(vpci->msix);
     xfree(vpci->msi);
     xfree(vpci);
