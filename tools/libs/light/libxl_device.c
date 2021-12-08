@@ -292,6 +292,9 @@ static int disk_try_backend(disk_try_backend_args *a,
     /* returns 0 (ie, DISK_BACKEND_UNKNOWN) on failure, or
      * backend on success */
 
+    assert((a->disk->virtio && backend == LIBXL_DISK_BACKEND_VIRTIO) ||
+           (!a->disk->virtio && backend != LIBXL_DISK_BACKEND_VIRTIO));
+
     switch (backend) {
     case LIBXL_DISK_BACKEND_PHY:
         if (a->disk->format != LIBXL_DISK_FORMAT_RAW) {
@@ -328,6 +331,29 @@ static int disk_try_backend(disk_try_backend_args *a,
     case LIBXL_DISK_BACKEND_QDISK:
         if (a->disk->script) goto bad_script;
         return backend;
+
+    case LIBXL_DISK_BACKEND_VIRTIO:
+        if (a->disk->format != LIBXL_DISK_FORMAT_RAW)
+            goto bad_format;
+
+        if (a->disk->script)
+            goto bad_script;
+
+        if (libxl_defbool_val(a->disk->colo_enable))
+            goto bad_colo;
+
+        if (a->disk->backend_domid != LIBXL_TOOLSTACK_DOMID) {
+            LOG(DEBUG, "Disk vdev=%s, is using a storage driver domain, "
+                       "skipping physical device check", a->disk->vdev);
+            return backend;
+        }
+
+        if (libxl__try_phy_backend(a->stab.st_mode))
+            return backend;
+
+        LOG(DEBUG, "Disk vdev=%s, backend virtio unsuitable as phys path not a "
+                   "block device", a->disk->vdev);
+        return 0;
 
     default:
         LOG(DEBUG, "Disk vdev=%s, backend %d unknown", a->disk->vdev, backend);
@@ -392,7 +418,8 @@ int libxl__device_disk_set_backend(libxl__gc *gc, libxl_device_disk *disk) {
         }
         memset(&a.stab, 0, sizeof(a.stab));
     } else if ((disk->backend == LIBXL_DISK_BACKEND_UNKNOWN ||
-                disk->backend == LIBXL_DISK_BACKEND_PHY) &&
+                disk->backend == LIBXL_DISK_BACKEND_PHY ||
+                disk->backend == LIBXL_DISK_BACKEND_VIRTIO) &&
                disk->backend_domid == LIBXL_TOOLSTACK_DOMID &&
                !disk->script) {
         if (stat(disk->pdev_path, &a.stab)) {
@@ -408,7 +435,8 @@ int libxl__device_disk_set_backend(libxl__gc *gc, libxl_device_disk *disk) {
         ok=
             disk_try_backend(&a, LIBXL_DISK_BACKEND_PHY) ?:
             disk_try_backend(&a, LIBXL_DISK_BACKEND_QDISK) ?:
-            disk_try_backend(&a, LIBXL_DISK_BACKEND_TAP);
+            disk_try_backend(&a, LIBXL_DISK_BACKEND_TAP) ?:
+            disk_try_backend(&a, LIBXL_DISK_BACKEND_VIRTIO);
         if (ok)
             LOG(DEBUG, "Disk vdev=%s, using backend %s",
                        disk->vdev,
@@ -441,6 +469,7 @@ char *libxl__device_disk_string_of_backend(libxl_disk_backend backend)
         case LIBXL_DISK_BACKEND_QDISK: return "qdisk";
         case LIBXL_DISK_BACKEND_TAP: return "phy";
         case LIBXL_DISK_BACKEND_PHY: return "phy";
+        case LIBXL_DISK_BACKEND_VIRTIO: return "virtio_disk";
         default: return NULL;
     }
 }

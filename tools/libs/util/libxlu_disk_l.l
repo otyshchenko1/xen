@@ -122,6 +122,10 @@ static void setbackendtype(DiskParseContext *dpc, const char *str) {
     if (     !strcmp(str,"phy"))   DSET(dpc,backend,BACKEND,str,PHY);
     else if (!strcmp(str,"tap"))   DSET(dpc,backend,BACKEND,str,TAP);
     else if (!strcmp(str,"qdisk")) DSET(dpc,backend,BACKEND,str,QDISK);
+    else if (!strcmp(str,"virtio")) {
+        DSET(dpc,backend,BACKEND,str,VIRTIO);
+        dpc->disk->virtio = 1;
+    }
     else xlu__disk_err(dpc,str,"unknown value for backendtype");
 }
 
