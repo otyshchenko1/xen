@@ -155,6 +155,10 @@
 #define PGC_reserved 0
 #endif
 
+#ifndef PGT_TYPE_INFO_INITIALIZER
+#define PGT_TYPE_INFO_INITIALIZER 0
+#endif
+
 /*
  * Comma-separated list of hexadecimal page numbers containing bad bytes.
  * e.g. 'badpage=0x3f45,0x8a321'.
@@ -2159,6 +2163,7 @@ void init_xenheap_pages(paddr_t ps, paddr_t pe)
 void *alloc_xenheap_pages(unsigned int order, unsigned int memflags)
 {
     struct page_info *pg;
+    unsigned int i;
 
     ASSERT(!in_irq());
 
@@ -2166,6 +2171,9 @@ void *alloc_xenheap_pages(unsigned int order, unsigned int memflags)
                           order, memflags | MEMF_no_scrub, NULL);
     if ( unlikely(pg == NULL) )
         return NULL;
+
+    for ( i = 0; i < (1u << order); i++ )
+        pg[i].u.inuse.type_info |= PGT_TYPE_INFO_INITIALIZER;
 
     return page_to_virt(pg);
 }
@@ -2214,7 +2222,10 @@ void *alloc_xenheap_pages(unsigned int order, unsigned int memflags)
         return NULL;
 
     for ( i = 0; i < (1u << order); i++ )
+    {
         pg[i].count_info |= PGC_xen_heap;
+        pg[i].u.inuse.type_info |= PGT_TYPE_INFO_INITIALIZER;
+    }
 
     return page_to_virt(pg);
 }
