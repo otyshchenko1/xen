@@ -42,6 +42,7 @@
 #include <xen/libfdt/libfdt.h>
 
 #include <asm/setup.h>
+#include <asm/viommu/kvm/virtio-iommu.h>
 
 /* Override macros from asm/page.h to make them work with mfn_t */
 #undef virt_to_mfn
@@ -1454,6 +1455,17 @@ int xenmem_add_to_physmap_one(
             put_pg_owner(od);
             return rc;
         }
+
+#ifdef CONFIG_VIRTIO_IOMMU
+        if ( !is_hardware_domain(d) &&
+             !viommu_gfn_foreign_access_permitted(d, od, idx, 1) )
+        {
+            gprintk(XENLOG_ERR, "Deny dom%d access to dom%d GFN 0x%lx\n",
+                    d->domain_id, od->domain_id, idx);
+            put_pg_owner(od);
+            return -EACCES;
+        }
+#endif
 
         /* Take reference to the foreign domain page.
          * Reference will be released in XENMEM_remove_from_physmap */
