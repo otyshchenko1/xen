@@ -3146,6 +3146,7 @@ void __init create_dom0(void)
     if ( gic_number_lines() > 992 )
         printk(XENLOG_WARNING "Maximum number of vGIC IRQs exceeded.\n");
     dom0_cfg.arch.tee_type = tee_get_type();
+    dom0_cfg.arch.viommu_enable = 0;
     dom0_cfg.max_vcpus = dom0_max_vcpus();
 
     if ( iommu_enabled )

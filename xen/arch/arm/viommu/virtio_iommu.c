@@ -1,21 +1,17 @@
-#include <errno.h>
-#include <stdbool.h>
 
-#include <sys/uio.h>
+#include <xen/err.h>
+#include <xen/sched.h>
+#include <xen/types.h>
 
-#include <linux/bitops.h>
-#include <linux/byteorder.h>
-#include <linux/err.h>
-#include <linux/virtio_ids.h>
-#include <linux/virtio_iommu.h>
+#include <asm/viommu/viommu.h>
 
-#include "kvm/guest_compat.h"
-#include "kvm/iovec.h"
-#include "kvm/irq.h"
-#include "kvm/of_pci.h"
-#include "kvm/threadpool.h"
-#include "kvm/virtio.h"
-#include "kvm/virtio-iommu.h"
+#include <asm/viommu/linux/virtio_ids.h>
+#include <asm/viommu/linux/virtio_iommu.h>
+
+#include <asm/viommu/kvm/iovec.h>
+#include <asm/viommu/kvm/virtio.h>
+#include <asm/viommu/kvm/virtio-iommu.h>
+#include <asm/viommu/kvm/kvm.h>
 
 #define VIOMMU_DEFAULT_QUEUE_SIZE	256
 /* 256 bytes should be enough for everybody */
@@ -64,7 +60,7 @@ struct viommu_domain {
 	size_t				nr_endpoints;
 	struct rb_node			node;
 
-	struct iommu_ops		*ops;
+	struct viommu_ops		*ops;
 	void				*priv;
 
 	int				debug_level;
@@ -84,10 +80,6 @@ struct viommu_dev {
 	struct virtio_ops		ops;
 
 	struct virt_queue		vqs[VIOMMU_NR_VQS];
-	bool				ioeventfd;
-	pthread_t			request_thread;
-	struct mutex			request_mutex;
-	pthread_cond_t			request_cond;
 	struct mutex			event_mutex;
 
 	struct mutex			endpoints_mutex;
@@ -102,8 +94,6 @@ struct viommu_dev {
 	int				debug_level;
 	struct viommu_stats		stats;
 };
-
-static int compat_id = -1;
 
 static long long viommu_ids;
 static LIST_HEAD(viommus);
@@ -182,7 +172,7 @@ viommu_alloc_domain(struct viommu_dev *viommu, struct device_header *dev,
 {
 	struct rb_node **node, *parent = NULL;
 	struct viommu_domain *new_domain, *domain;
-	struct iommu_ops *ops = dev->iommu_ops;
+	struct viommu_ops *ops = dev->iommu_ops;
 
 	if (!ops || !ops->get_properties || !ops->alloc_domain ||
 	    !ops->free_domain || !ops->attach || !ops->detach ||
@@ -192,7 +182,7 @@ viommu_alloc_domain(struct viommu_dev *viommu, struct device_header *dev,
 		return NULL;
 	}
 
-	new_domain = calloc(1, sizeof(*new_domain));
+	new_domain = xzalloc(struct viommu_domain);
 	if (!new_domain)
 		return NULL;
 
@@ -217,7 +207,7 @@ viommu_alloc_domain(struct viommu_dev *viommu, struct device_header *dev,
 			node = &((*node)->rb_right);
 		} else {
 			pr_err("domain exists!");
-			free(new_domain);
+			xfree(new_domain);
 			mutex_unlock(&viommu->domains_mutex);
 			return NULL;
 		}
@@ -240,16 +230,17 @@ static void viommu_free_domain(struct viommu_dev *viommu,
 	mutex_lock(&viommu->domains_mutex);
 	rb_erase(&domain->node, &viommu->domains);
 	mutex_unlock(&viommu->domains_mutex);
-	free(domain);
+	xfree(domain);
 }
 
 static int viommu_domain_add_endpoint(struct viommu_domain *domain,
 				      struct viommu_endpoint *vdev)
 {
 	mutex_lock(&domain->endpoints_mutex);
-	list_add_tail(&vdev->list, &domain->endpoints);
-	domain->nr_endpoints++;
-	vdev->domain = domain;
+	if (domain->nr_endpoints++ == 0) {
+		list_add_tail(&vdev->list, &domain->endpoints);
+		vdev->domain = domain;
+	}
 	mutex_unlock(&domain->endpoints_mutex);
 
 	return 0;
@@ -259,9 +250,10 @@ static int viommu_domain_del_endpoint(struct viommu_domain *domain,
 				      struct viommu_endpoint *vdev)
 {
 	mutex_lock(&domain->endpoints_mutex);
-	list_del(&vdev->list);
-	domain->nr_endpoints--;
-	vdev->domain = NULL;
+	if (--domain->nr_endpoints == 0) {
+		list_del(&vdev->list);
+		vdev->domain = NULL;
+	}
 	mutex_unlock(&domain->endpoints_mutex);
 
 	return 0;
@@ -293,7 +285,7 @@ static int viommu_detach_endpoint(struct viommu_dev *viommu,
 static struct viommu_endpoint *viommu_alloc_endpoint(struct viommu_dev *viommu,
 						     struct device_header *dev)
 {
-	struct viommu_endpoint *vdev = calloc(1, sizeof(*vdev));
+	struct viommu_endpoint *vdev = xzalloc(struct viommu_endpoint);
 
 	if (!vdev)
 		return NULL;
@@ -317,7 +309,7 @@ static void viommu_free_endpoint(struct viommu_dev *viommu,
 
 	vdev->dev->iommu_data = NULL;
 	list_del(&vdev->viommu_list);
-	free(vdev);
+	xfree(vdev);
 }
 
 static void viommu_free_all_endpoints(struct viommu_dev *viommu)
@@ -344,8 +336,8 @@ static int viommu_handle_attach(struct viommu_dev *viommu,
 	if (*(u64 *)attach->reserved)
 		return -EINVAL;
 
-	dev = iommu_get_device(endpoint_id);
-	if (IS_ERR_OR_NULL(dev)) {
+	dev = viommu->vdev.dev;
+	if (!dev || dev->iommu_id != endpoint_id) {
 		pr_err("could not find endpoint %#x", endpoint_id);
 		return -ENODEV;
 	}
@@ -357,10 +349,8 @@ static int viommu_handle_attach(struct viommu_dev *viommu,
 			return -ENOMEM;
 	}
 
-	if (vdev->domain) {
-		if (vdev->domain->id == domain_id)
-			return -EINVAL;
-
+	/* XXX Hack to be able to keep several endpoints in the same IOMMU domain */
+	if (vdev->domain && vdev->domain->id != domain_id) {
 		ret = viommu_detach_endpoint(viommu, vdev);
 		if (ret)
 			return ret;
@@ -402,8 +392,8 @@ static int viommu_handle_detach(struct viommu_dev *viommu,
 	if (detach->reserved)
 		return -EINVAL;
 
-	dev = iommu_get_device(endpoint_id);
-	if (IS_ERR_OR_NULL(dev)) {
+	dev = viommu->vdev.dev;
+	if (!dev || dev->iommu_id != endpoint_id) {
 		pr_err("could not find endpoint %#x", endpoint_id);
 		return -ENODEV;
 	}
@@ -449,7 +439,7 @@ static int viommu_handle_map(struct viommu_dev *viommu,
 	if (!domain)
 		return -ESRCH;
 
-	domain_debug(domain, "map %#llx-%#llx -> %#llx", virt_start, virt_end,
+	domain_debug(domain, "map %#lx-%#lx -> %#lx", virt_start, virt_end,
 		     phys_start);
 
 	ret = domain->ops->map(domain->priv, virt_start, virt_end, phys_start,
@@ -480,7 +470,7 @@ static int viommu_handle_unmap(struct viommu_dev *viommu,
 	if (!domain)
 		return -ESRCH;
 
-	domain_debug(domain, "unmap %#llx-%#llx", virt_start, virt_end);
+	domain_debug(domain, "unmap %#lx-%#lx", virt_start, virt_end);
 
 	ret = domain->ops->unmap(domain->priv, virt_start, virt_end, 0);
 	if (!ret) {
@@ -491,49 +481,20 @@ static int viommu_handle_unmap(struct viommu_dev *viommu,
 	return ret;
 }
 
-static int viommu_add_msi_window(struct virtio_iommu_req_probe *probe,
-				 const struct iommu_properties *properties,
-				 size_t *cur)
-{
-	struct virtio_iommu_probe_resv_mem *prop = (void *)probe->properties + *cur;
-
-	if (*cur + sizeof(*prop) > VIOMMU_DEFAULT_PROBE_SIZE) {
-		pr_err("cannot fill probe request, would overflow");
-		return -ENOSPC;
-	}
-
-	*prop = (struct virtio_iommu_probe_resv_mem) {
-		.head.type = cpu_to_le16(VIRTIO_IOMMU_PROBE_T_RESV_MEM),
-		.head.length = cpu_to_le16(sizeof(*prop) - sizeof(prop->head)),
-		.subtype = VIRTIO_IOMMU_RESV_MEM_T_MSI,
-		.start = cpu_to_le64(properties->msi_window.start),
-		.end = cpu_to_le64(properties->msi_window.end),
-	};
-
-	*cur += sizeof(*prop);
-
-	return 0;
-}
-
 static size_t viommu_handle_probe(struct viommu_dev *viommu,
 				  struct virtio_iommu_req_probe *probe,
 				  ssize_t *written_len)
 {
 	u32 endpoint_id;
-	size_t cur = 0;
 	struct device_header *dev;
-	const struct iommu_properties *properties;
 
 	endpoint_id = le32_to_cpu(probe->endpoint);
 
-	dev = iommu_get_device(endpoint_id);
-	if (IS_ERR_OR_NULL(dev))
+	dev = viommu->vdev.dev;
+	if (!dev || dev->iommu_id != endpoint_id) {
+		pr_err("could not find endpoint %#x", endpoint_id);
 		return -ENODEV;
-
-	properties = dev->iommu_ops->get_properties(dev);
-
-	if (properties->msi_window.start)
-		viommu_add_msi_window(probe, properties, &cur);
+	}
 
 	/*
 	 * The parser already filled the rest of the buffer with zeroes, so we
@@ -741,10 +702,21 @@ static int _viommu_handle_requests(struct kvm *kvm,
 
 	viommu->stats.kicks++;
 	while (virt_queue__available(vq)) {
+		struct iovec *iov;
+		unsigned int i, nr_iov;
+
 		head = virt_queue__get_iov(vq, &dev_rd, &dev_wr, kvm);
+		nr_iov = dev_rd + dev_wr;
+		iov = xzalloc_array(struct iovec, nr_iov);
+		memcpy(iov, vq->buf.iov, sizeof(struct iovec) * nr_iov);
 
 		written_len = viommu_parse_request(viommu, vq->buf.iov, dev_rd, dev_wr);
 		virt_queue__put_iov(vq);
+
+		for (i = 0; i < nr_iov; i++)
+			viommu_unmap_guest_range(iov[i].iov_base, iov[i].iov_len);
+		xfree(iov);
+
 		virt_queue__set_used_elem(vq, head, written_len > 0 ?
 					  written_len : 0);
 	}
@@ -754,34 +726,6 @@ static int _viommu_handle_requests(struct kvm *kvm,
 					    VIOMMU_REQUEST_QUEUE);
 
 	return 0;
-}
-
-/*
- * When ioeventfd notification is used, the request handler runs in a thread.
- * Otherwise it's just executed by the vCPU thread.
- */
-static void *viommu_handle_requests(void *p)
-{
-	struct virt_queue *vq;
-	struct viommu_dev *viommu = p;
-	struct kvm *kvm = viommu->kvm;
-
-	kvm__set_thread_name("virtio-iommu-request");
-
-	vq = &viommu->vqs[VIOMMU_REQUEST_QUEUE];
-
-	while (1) {
-		if (!virt_queue__available(vq)) {
-			mutex_lock(&viommu->request_mutex);
-			pthread_cond_wait(&viommu->request_cond,
-					  &viommu->request_mutex.mutex);
-			mutex_unlock(&viommu->request_mutex);
-		}
-
-		_viommu_handle_requests(kvm, viommu, vq);
-	}
-
-	return NULL;
 }
 
 static int viommu_report_faults_locked(struct viommu_dev *viommu,
@@ -811,10 +755,16 @@ static int viommu_report_faults_locked(struct viommu_dev *viommu,
 	buf = &faults[0];
 
 	do {
+		struct iovec *iov;
+		unsigned int j, nr_iov;
+
 		while (!virt_queue__available(vq))
-			sleep(0);
+			cpu_relax();
 
 		head = virt_queue__get_iov(vq, &dev_rd, &dev_wr, kvm);
+		nr_iov = dev_rd + dev_wr;
+		iov = xzalloc_array(struct iovec, nr_iov);
+		memcpy(iov, vq->buf.iov, sizeof(struct iovec) * nr_iov);
 
 		iovsize = min_t(size_t, len - copied, iov_size(vq->buf.iov, dev_wr));
 		memcpy_toiovec(vq->buf.iov, buf + copied, iovsize);
@@ -831,6 +781,11 @@ static int viommu_report_faults_locked(struct viommu_dev *viommu,
 
 		/* Next fault */
 		virt_queue__put_iov(vq);
+
+		for (j = 0; j < nr_iov; j++)
+			viommu_unmap_guest_range(iov[j].iov_base, iov[j].iov_len);
+		xfree(iov);
+
 		virt_queue__used_idx_advance(vq, num_buffers);
 
 		copied = num_buffers = 0;
@@ -948,29 +903,15 @@ static int viommu_init_vq(struct kvm *kvm, void *dev, u32 vq)
 	if (vq >= VIOMMU_NR_VQS)
 		return -ENODEV;
 
-	compat__remove_message(compat_id);
-
 	virtio_init_device_vq(kvm, &viommu->vdev, &viommu->vqs[vq],
 			      VIOMMU_DEFAULT_QUEUE_SIZE);
-
-	if (viommu->ioeventfd && vq == VIOMMU_REQUEST_QUEUE) {
-		pthread_cond_init(&viommu->request_cond, NULL);
-		mutex_init(&viommu->request_mutex);
-		pthread_create(&viommu->request_thread, NULL,
-			       viommu_handle_requests, viommu);
-	}
 
 	return 0;
 }
 
 static void viommu_exit_vq(struct kvm *kvm, void *dev, u32 vq)
 {
-	struct viommu_dev *viommu = dev;
 
-	if (viommu->ioeventfd && vq == VIOMMU_REQUEST_QUEUE) {
-		pthread_cancel(viommu->request_thread);
-		pthread_join(viommu->request_thread, NULL);
-	}
 }
 
 static struct virt_queue *viommu_get_vq(struct kvm *kvm, void *dev, u32 vq)
@@ -1002,14 +943,7 @@ static int viommu_notify_vq(struct kvm *kvm, void *dev, u32 vq)
 	if (vq != VIOMMU_REQUEST_QUEUE)
 		return 0;
 
-	if (viommu->ioeventfd) {
-		mutex_lock(&viommu->request_mutex);
-		pthread_cond_signal(&viommu->request_cond);
-		mutex_unlock(&viommu->request_mutex);
-	} else {
-		_viommu_handle_requests(kvm, viommu,
-					&viommu->vqs[VIOMMU_REQUEST_QUEUE]);
-	}
+	_viommu_handle_requests(kvm, viommu, &viommu->vqs[VIOMMU_REQUEST_QUEUE]);
 
 	return 0;
 }
@@ -1044,98 +978,6 @@ static const struct virtio_ops iommu_dev_virtio_ops = {
 	.notify_status		= viommu_notify_status,
 };
 
-static const char *iommu_usage =
-"--viommu bus[,opt[,opt...]]\n"
-"  bus describes the subsystem that will be managed by the IOMMU.           \n"
-"    Possible values are: vfio, virtio.                                     \n"
-"  opt may be:                                                              \n"
-"  * pci or mmio: override default transport                                \n"
-"  * sw-msi: MSIs do not bypass IOMMU translation.                          \n"
-"  * debug=<level>: set debug level ('none', 'print', 'flood')              \n"
-"  * ioeventfd: use ioeventfd and thread sync (slower)                       ";
-
-int viommu_bus_parser(const struct option *opt, const char *arg, int unset)
-{
-	int ret = -EINVAL;
-	const char *instance;
-	char *cur, *buf = strdup(arg);
-	struct kvm *kvm = (void *)opt->ptr;
-	struct iommu_config cfg = { 0 };
-
-	cur = strtok(buf, ",");
-	if (strncmp(cur, "vfio", 4) == 0) {
-		instance = "viommu-vfio";
-	} else if (strncmp(cur, "virtio", 6) == 0) {
-		instance = "viommu-virtio";
-	} else {
-		pr_err("invalid IOMMU '%s'\n usage: %s", cur, iommu_usage);
-		goto out_free;
-	}
-
-	while ((cur = strtok(NULL, ",")) != NULL) {
-		if (strncmp(cur, "debug", 5) == 0) {
-			/* Format is debug[=none|=print|=flood] */
-			if (!cur[5]) {
-				cfg.debug_level = IOMMU_DEBUG_L_INFO;
-				continue;
-			}
-
-			if (strcmp(cur + 5, "=none") == 0) {
-				cfg.debug_level = IOMMU_DEBUG_L_DISABLED;
-			} else if (strcmp(cur + 5, "=flood") == 0) {
-				cfg.debug_level = IOMMU_DEBUG_L_VERBOSE;
-			} else if (strcmp(cur + 5, "=print") == 0) {
-				cfg.debug_level = IOMMU_DEBUG_L_INFO;
-			} else {
-				pr_err("invalid debug argument '%s'", cur + 5);
-				goto out_free;
-			}
-
-			continue;
-		}
-
-		if (strcmp(cur, "sw-msi") == 0) {
-			cfg.sw_msi = true;
-			continue;
-		}
-
-		if (strcmp(cur, "pci") == 0) {
-			cfg.transport = "pci";
-			continue;
-		} else if (strcmp(cur, "mmio") == 0) {
-			cfg.transport = "mmio";
-			continue;
-		}
-
-		if (strcmp(cur, "ioeventfd") == 0) {
-			cfg.ioeventfd = true;
-			continue;
-		}
-
-		pr_err("invalid IOMMU option '%s'\n usage: %s", cur,
-		       iommu_usage);
-		goto out_free;
-	}
-
-	cfg.name = strdup(instance);
-	if (!cfg.name) {
-		ret = -ENOMEM;
-		goto out_free;
-	}
-
-	kvm->cfg.num_viommus++;
-	kvm->cfg.viommus = realloc(kvm->cfg.viommus, kvm->cfg.num_viommus *
-				   sizeof(cfg));
-	if (!kvm->cfg.viommus)
-		die("Failed adding a new vIOMMU");
-	kvm->cfg.viommus[kvm->cfg.num_viommus - 1] = cfg;
-	ret = 0;
-
-out_free:
-	free(buf);
-	return ret;
-}
-
 int viommu_update_config(void *dev, struct iommu_properties *props)
 {
 	bool changed = false;
@@ -1168,113 +1010,26 @@ int viommu_update_config(void *dev, struct iommu_properties *props)
 	return 0;
 }
 
-#ifdef CONFIG_HAS_LIBFDT
-struct of_pci_reg {
-	struct of_pci_unit_address	addr;
-	u32				size_hi, size_lo;
-} __attribute__((packed));
-
-void pci__generate_iommu_fdt_nodes(void *fdt)
-{
-	struct of_pci_reg reg = {0};
-	struct viommu_dev *viommu;
-	struct device_header *dev_hdr;
-
-	mutex_lock(&viommus_mutex);
-	list_for_each_entry(viommu, &viommus, list) {
-		if (viommu->transport != VIRTIO_PCI)
-			continue;
-
-		dev_hdr = viommu->vdev.dev;
-		reg.addr.hi = cpu_to_fdt32(of_pci_b_ddddd(dev_hdr->dev_num));
-
-		_FDT(fdt_begin_node(fdt, viommu->properties->name));
-		_FDT(fdt_property_string(fdt, "compatible", "virtio,pci-iommu"));
-		_FDT(fdt_property(fdt, "reg", &reg, sizeof(reg)));
-		_FDT(fdt_property_cell(fdt, "#iommu-cells", 0x1));
-		_FDT(fdt_property_cell(fdt, "phandle", viommu->properties->phandle));
-		_FDT(fdt_end_node(fdt));
-	}
-	mutex_unlock(&viommus_mutex);
-}
-
-void viommu_mmio_generate_fdt_props(void *fdt, struct device_header *dev_hdr)
-{
-	u32 iommus_prop[2];
-	const struct iommu_properties *props;
-	struct viommu_dev *viommu = NULL, *tmp;
-
-	mutex_lock(&viommus_mutex);
-	list_for_each_entry(tmp, &viommus, list) {
-		if (tmp->vdev.dev == dev_hdr) {
-			viommu = tmp;
-			break;
-		}
-	}
-	mutex_unlock(&viommus_mutex);
-
-	/* If the device is an IOMMU, it has phandle and iommu-cells properties */
-	if (viommu) {
-		_FDT(fdt_property_cell(fdt, "phandle",
-				       viommu->properties->phandle));
-		_FDT(fdt_property_cell(fdt, "#iommu-cells", 1));
-		return;
-	}
-
-	if (!dev_hdr->iommu_ops)
-		return;
-
-	/* Otherwise it has an iommus property */
-	props = dev_hdr->iommu_ops->get_properties(dev_hdr);
-
-	iommus_prop[0] = cpu_to_fdt32(props->phandle);
-	iommus_prop[1] = cpu_to_fdt32(device_to_iommu_id(dev_hdr));
-	_FDT(fdt_property(fdt, "iommus", iommus_prop, sizeof(iommus_prop)));
-}
-#endif
-
-void *viommu_register(struct kvm *kvm, struct iommu_properties *props)
+void *viommu_register(struct kvm *kvm, struct iommu_properties *props, u64 base, u32 irq)
 {
 	int ret;
-	int i = 0;
-	struct iommu_config *cfg;
 	struct viommu_dev *viommu;
-	struct kvm_msi_doorbell *doorbell = irq__get_msi_doorbell(kvm);
 
-	/* Find user configuration for this IOMMU, passed on the command line */
-	for (i = 0; i < kvm->cfg.num_viommus; i++) {
-		cfg = &kvm->cfg.viommus[i];
-		if (cfg->name && strcmp(cfg->name, props->name) == 0)
-			break;
-	}
-
-	if (i == kvm->cfg.num_viommus)
-		return NULL;
-
-	props->phandle = fdt_alloc_phandle();
-
-	viommu = calloc(1, sizeof(struct viommu_dev));
+	viommu = xzalloc(struct viommu_dev);
 	if (!viommu)
 		return ERR_PTR(-ENOMEM);
 
 	viommu->kvm			= kvm;
 	viommu->domains			= (struct rb_root)RB_ROOT;
-	viommu->endpoints_mutex		= (struct mutex)MUTEX_INITIALIZER;
-	viommu->domains_mutex		= (struct mutex)MUTEX_INITIALIZER;
-	viommu->event_mutex		= (struct mutex)MUTEX_INITIALIZER;
+	mutex_init(&viommu->endpoints_mutex);
+	mutex_init(&viommu->domains_mutex);
+	mutex_init(&viommu->event_mutex);
+
 	viommu->properties		= props;
 	viommu->ops			= iommu_dev_virtio_ops;
-	viommu->transport		= VIRTIO_DEFAULT_TRANS(kvm);
-	viommu->debug_level		= cfg->debug_level;
-	viommu->ioeventfd		= cfg->ioeventfd;
+	viommu->transport		= VIRTIO_MMIO;
+	viommu->debug_level		= IOMMU_DEBUG_L_DISABLED;
 	INIT_LIST_HEAD(&viommu->endpoints);
-
-	if (cfg->transport) {
-		if (strcmp(cfg->transport, "pci") == 0)
-			viommu->transport = VIRTIO_PCI;
-		else if (strcmp(cfg->transport, "mmio") == 0)
-			viommu->transport = VIRTIO_MMIO;
-	}
 
 	if (viommu->transport == VIRTIO_MMIO_LEGACY ||
 	    viommu->transport == VIRTIO_PCI_LEGACY) {
@@ -1282,21 +1037,15 @@ void *viommu_register(struct kvm *kvm, struct iommu_properties *props)
 		return ERR_PTR(-EINVAL);
 	}
 
-	if (!cfg->sw_msi && doorbell) {
-		props->msi_window.start = doorbell->addr;
-		props->msi_window.end = doorbell->addr + doorbell->size - 1;
-	}
-
 	ret = virtio_init(kvm, viommu, &viommu->vdev, &viommu->ops,
 			  viommu->transport, 0, VIRTIO_ID_IOMMU,
-			  PCI_CLASS_IOMMU);
+			  PCI_CLASS_IOMMU, base, irq);
 	if (ret) {
-		free(viommu);
+		xfree(viommu);
 		return ERR_PTR(ret);
 	}
 
 	viommu_update_config(viommu, props);
-	viommu->vdev.no_eventfd = !cfg->ioeventfd;
 
 	mutex_lock(&viommus_mutex);
 	viommu->id = viommu_ids++;
@@ -1305,10 +1054,6 @@ void *viommu_register(struct kvm *kvm, struct iommu_properties *props)
 
 	pr_info("Loaded virtual IOMMU %s with %s transport", props->name,
 		virtio_trans_name(viommu->transport));
-
-	if (compat_id == -1)
-		compat_id = virtio_compat_add_message("virtio-iommu",
-						      "CONFIG_VIRTIO_IOMMU");
 
 	return viommu;
 }
@@ -1321,115 +1066,8 @@ void viommu_unregister(struct kvm *kvm, void *dev)
 	list_del(&viommu->list);
 	mutex_unlock(&viommus_mutex);
 	viommu_free_all_endpoints(viommu);
-	free(viommu);
-}
-
-const char *debug_usage =
-"  list [iommu [domain]]       list iommus and domains\n"
-"  stat [iommu [domain]]       display statistics\n"
-"  dump [iommu [domain]]       dump mappings\n"
-"  print [iommu [domain]]      enable debug print\n"
-"  flood [iommu [domain]]      enable *verbose* debug print\n"
-"  noprint [iommu [domain]]    disable debug print\n"
-"  fault [iommu [num [reason   inject a fault\n"
-"         [endpoint [addr]]]]]\n"
-;
-
-int viommu_parse_debug_string(const char *cmdline, struct iommu_debug_params *params)
-{
-	int pos = 0;
-	int ret = -EINVAL;
-	unsigned long num;
-	char *cur, *args = strdup(cmdline);
-	params->action = IOMMU_DEBUG_NUM_ACTIONS;
-
-	if (!args)
-		return -ENOMEM;
-
-	params->selector[0] = IOMMU_DEBUG_SELECTOR_INVALID;
-	params->selector[1] = IOMMU_DEBUG_SELECTOR_INVALID;
-
-	cur = strtok(args, " ,:");
-	while (cur) {
-		if (pos > 0 && params->action == IOMMU_DEBUG_FAULT) {
-			/* Parse fault parameters */
-			errno = 0;
-			num = strtoul(cur, NULL, 0);
-			if (errno) {
-				ret = -errno;
-				pr_err("Invalid number '%s'", cur);
-				break;
-			}
-
-			if (pos == 1) {
-				params->selector[0] = num;
-			} else if (pos == 2) {
-				params->fault.num = num;
-			} else if (pos == 3) {
-				params->fault.reason = num;
-			} else if (pos == 4) {
-				params->fault.endpoint = num;
-			} else if (pos == 5) {
-				params->fault.addr = num;
-			} else {
-				ret = -EINVAL;
-				pr_err("Too many parameters");
-				break;
-			}
-		} else if (pos > 0) {
-			/* Parse parameters for any other command */
-			if (pos > 2) {
-				ret = -EINVAL;
-				pr_err("Too many parameters");
-				break;
-			}
-
-			errno = 0;
-			params->selector[pos - 1] = strtoul(cur, NULL, 0);
-			if (errno) {
-				ret = -errno;
-				pr_err("Invalid number '%s'", cur);
-				break;
-			}
-
-			/* Parse command */
-		} else if (strncmp(cur, "list", 4) == 0) {
-			params->action = IOMMU_DEBUG_LIST;
-		} else if (strncmp(cur, "stat", 5) == 0) {
-			params->action = IOMMU_DEBUG_STATS;
-		} else if (strncmp(cur, "dump", 4) == 0) {
-			params->action = IOMMU_DEBUG_DUMP;
-		} else if (strncmp(cur, "flood", 5) == 0) {
-			params->action = IOMMU_DEBUG_SET_PRINT;
-			params->debug_level = IOMMU_DEBUG_L_VERBOSE;
-		} else if (strncmp(cur, "print", 5) == 0) {
-			params->action = IOMMU_DEBUG_SET_PRINT;
-			params->debug_level = IOMMU_DEBUG_L_INFO;
-		} else if (strncmp(cur, "noprint", 7) == 0 ||
-			   strncmp(cur, "noflood", 7) == 0) {
-			params->action = IOMMU_DEBUG_SET_PRINT;
-			params->debug_level = IOMMU_DEBUG_L_DISABLED;
-		} else if (strncmp(cur, "fault", 5) == 0) {
-			params->action = IOMMU_DEBUG_FAULT;
-		} else {
-			pr_err("Invalid command '%s'", cur);
-			break;
-		}
-
-		cur = strtok(NULL, " ,:");
-		pos++;
-		ret = 0;
-	}
-
-	free(args);
-
-	if (cur && cur[0])
-		pr_err("Ignoring argument '%s'", cur);
-
-	if (ret)
-		pr_info("Usage:\n%s", debug_usage);
-
-	return ret;
+	virtio_exit(kvm, &viommu->vdev);
+	xfree(viommu);
 }
 
 struct viommu_debug_context {
@@ -1459,11 +1097,11 @@ static int viommu_debug_domain(struct viommu_dev *viommu,
 		mutex_unlock(&domain->endpoints_mutex);
 		break;
 	case IOMMU_DEBUG_STATS:
-		dprintf(ctx->sock, "    maps                %llu\n",
+		dprintf(ctx->sock, "    maps                %lu\n",
 			domain->stats.map);
-		dprintf(ctx->sock, "    unmaps              %llu\n",
+		dprintf(ctx->sock, "    unmaps              %lu\n",
 			domain->stats.unmap);
-		dprintf(ctx->sock, "    resident            %llu\n",
+		dprintf(ctx->sock, "    resident            %lu\n",
 			domain->stats.resident);
 		break;
 	case IOMMU_DEBUG_SET_PRINT:
@@ -1496,15 +1134,13 @@ static int viommu_debug_faults(struct viommu_dev *viommu,
 	if (!nr_faults)
 		nr_faults = 1;
 
-	faults = calloc(nr_faults, sizeof(*faults));
+	faults = xzalloc_array(struct virtio_iommu_fault, nr_faults);
 	if (!faults)
 		return -ENOMEM;
 
 	address = params->addr;
 	if (address != -1UL)
 		flags |= VIRTIO_IOMMU_FAULT_F_ADDRESS;
-
-	srand48(address);
 
 	for (i = 0; i < nr_faults; i++) {
 		/* Pick random prot flags */
@@ -1518,12 +1154,12 @@ static int viommu_debug_faults(struct viommu_dev *viommu,
 			.address	= cpu_to_le64(address),
 		};
 
-		address = lrand48();
+		address = get_random();
 	}
 
 	ret = viommu_report_faults(viommu, faults, nr_faults);
 
-	free(faults);
+	xfree(faults);
 
 	return ret;
 }
@@ -1534,8 +1170,8 @@ static int viommu_debug_iommu(struct viommu_dev *viommu,
 	struct viommu_domain *domain;
 
 	if (ctx->disp)
-		dprintf(ctx->sock, "iommu %u \"%s\"\n", viommu->id,
-			viommu->properties->name);
+		dprintf(ctx->sock, "dom%d: iommu %u \"%s\"\n", viommu->kvm->domain_id,
+			viommu->id, viommu->properties->name);
 
 	if (ctx->params->selector[1] != IOMMU_DEBUG_SELECTOR_INVALID) {
 		domain = viommu_find_domain(viommu, ctx->params->selector[1]);
@@ -1544,9 +1180,9 @@ static int viommu_debug_iommu(struct viommu_dev *viommu,
 
 	switch (ctx->params->action) {
 	case IOMMU_DEBUG_STATS:
-		dprintf(ctx->sock, "  kicks                 %llu\n",
+		dprintf(ctx->sock, "  kicks                 %lu\n",
 			viommu->stats.kicks);
-		dprintf(ctx->sock, "  requests              %llu\n",
+		dprintf(ctx->sock, "  requests              %lu\n",
 			viommu->stats.requests);
 		break;
 	case IOMMU_DEBUG_SET_PRINT:
@@ -1557,7 +1193,6 @@ static int viommu_debug_iommu(struct viommu_dev *viommu,
 	default:
 		break;
 	}
-
 	return viommu_for_each_domain(viommu, viommu_debug_domain, ctx);
 }
 
@@ -1576,7 +1211,6 @@ int viommu_debug(struct kvm *kvm, int sock, struct iommu_debug_params *params)
 	if (params->action == IOMMU_DEBUG_LIST ||
 	    params->action == IOMMU_DEBUG_STATS)
 		ctx.disp = true;
-
 	mutex_lock(&viommus_mutex);
 	list_for_each_entry(viommu, &viommus, list) {
 		match = (params->selector[0] == viommu->id);
@@ -1589,7 +1223,7 @@ int viommu_debug(struct kvm *kvm, int sock, struct iommu_debug_params *params)
 	mutex_unlock(&viommus_mutex);
 
 	if (ret)
-		dprintf(sock, "error: %s\n", strerror(-ret));
+		dprintf(sock, "error: %d\n", ret);
 
 	return ret;
 }

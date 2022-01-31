@@ -10,6 +10,7 @@
 #include <asm/gic.h>
 #include <asm/vgic.h>
 #include <asm/vpl011.h>
+#include <asm/viommu/viommu.h>
 #include <public/hvm/params.h>
 
 struct hvm_domain
@@ -88,6 +89,10 @@ struct arch_domain
 
 #ifdef CONFIG_TEE
     void *tee;
+#endif
+
+#if CONFIG_VIRTIO_IOMMU
+    struct viommu viommu;
 #endif
 
     /* OSID used by virtual GSX device */

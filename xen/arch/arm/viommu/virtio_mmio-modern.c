@@ -1,7 +1,10 @@
-#include "kvm/virtio.h"
-#include "kvm/virtio-mmio.h"
 
-#include <linux/byteorder.h>
+#include <xen/err.h>
+#include <xen/sched.h>
+#include <xen/types.h>
+
+#include <asm/viommu/kvm/virtio.h>
+#include <asm/viommu/kvm/virtio-mmio.h>
 
 #define vmmio_selected_vq(vmmio) \
 	vdev->ops->get_vq((vmmio)->kvm, (vmmio)->dev, (vmmio)->hdr.queue_sel)
@@ -146,7 +149,7 @@ void virtio_mmio_modern_callback(struct kvm_cpu *vcpu, u64 addr, u8 *data,
 	}
 
 	if (len != 4) {
-		pr_debug("Invalid %s size %d at 0x%llx", is_write ? "write" :
+		pr_debug("Invalid %s size %d at 0x%lx", is_write ? "write" :
 			 "read", len, addr);
 		return;
 	}
