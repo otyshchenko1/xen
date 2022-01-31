@@ -317,8 +317,20 @@ DEFINE_XEN_GUEST_HANDLE(vcpu_guest_context_t);
 struct xen_arch_domainconfig {
     /* IN/OUT */
     uint8_t gic_version;
+
+    /* IN */
+    uint8_t viommu_enable;
+
     /* IN */
     uint16_t tee_type;
+
+    /*
+     * IN
+     * virtio-mmio specific data for the virtio-iommu backend
+     */
+    uint32_t viommu_irq;
+    uint64_t viommu_base;
+
     /* IN */
     uint32_t nr_spis;
     /*
@@ -496,6 +508,8 @@ typedef uint64_t xen_callback_t;
 #define PSCI_cpu_off     1
 #define PSCI_cpu_on      2
 #define PSCI_migrate     3
+
+#define GUEST_VIRTIO_MMIO_IOMMU_ID   0x10000
 
 #endif
 
