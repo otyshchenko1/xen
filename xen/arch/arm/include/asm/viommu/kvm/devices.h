@@ -1,9 +1,7 @@
 #ifndef KVM__DEVICES_H
 #define KVM__DEVICES_H
 
-#include <linux/rbtree.h>
-#include <linux/types.h>
-#include <linux/compiler.h>
+#include <xen/types.h>
 
 enum device_bus_type {
 	DEVICE_BUS_PCI,
@@ -12,23 +10,17 @@ enum device_bus_type {
 	DEVICE_BUS_MAX,
 };
 
-struct iommu_ops;
+/* XXX */
+struct viommu_ops;
 
 struct device_header {
 	enum device_bus_type	bus_type;
 	void			*data;
 	int			dev_num;
 	struct rb_node		node;
-	struct iommu_ops	*iommu_ops;
+	struct viommu_ops	*iommu_ops;
 	void			*iommu_data;
+	long			iommu_id;
 };
-
-int __must_check device__register(struct device_header *dev);
-void device__unregister(struct device_header *dev);
-struct device_header *device__find_dev(enum device_bus_type bus_type,
-				       u8 dev_num);
-
-struct device_header *device__first_dev(enum device_bus_type bus_type);
-struct device_header *device__next_dev(struct device_header *dev);
 
 #endif /* KVM__DEVICES_H */

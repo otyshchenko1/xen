@@ -16,12 +16,11 @@
  *		Andi Kleen	:	Fix csum*fromiovecend for IPv6.
  */
 
-#include <linux/errno.h>
-#include <linux/kernel.h>
-#include <linux/compiler.h>
-#include <sys/uio.h>
-#include <kvm/iovec.h>
-#include <string.h>
+#include <xen/err.h>
+#include <xen/sched.h>
+#include <xen/types.h>
+
+#include <asm/viommu/kvm/iovec.h>
 
 /*
  *	Copy kernel to iovec. Returns -EFAULT on error.
@@ -150,91 +149,3 @@ int memcpy_fromiovecend(unsigned char *kdata, const struct iovec *iov,
 
 	return 0;
 }
-
-#include "kvm/util.h"
-#include "kvm/util-init.h"
-#define SELFTEST_ASSERT(cond) do {						\
-	if (!(cond)) {								\
-		pr_warning("%s:%d: " #cond " failed", __FILE__, __LINE__);	\
-		return -EFAULT;							\
-	}									\
-	} while (0);
-
-
-static int iovec_selftest(struct kvm *kvm)
-{
-	size_t i;
-	size_t iovcount;
-	ssize_t len;
-	size_t buf_len = 256;
-	u8 in_buf[buf_len];
-	u8 out_buf[buf_len];
-	struct iovec *iovptr;
-	struct iovec iov[] = {
-		{
-			.iov_base	= in_buf + 128,
-			.iov_len	= 128,
-		},
-		{
-			.iov_base	= in_buf,
-			.iov_len	= 16
-		},
-		{
-			.iov_base	= in_buf + 16,
-			.iov_len	= 32,
-		},
-		{
-			.iov_base	= in_buf + 48,
-			.iov_len	= 80,
-		}
-	};
-
-	for (i = 0; i < buf_len; i++) {
-		in_buf[i] = i;
-		out_buf[i] = 0;
-	}
-
-	iovcount = 4;
-	iovptr = iov;
-	len = memcpy_fromiovec_safe(out_buf + 128, &iovptr, 128, &iovcount);
-	SELFTEST_ASSERT(len == 0);
-	SELFTEST_ASSERT(iovcount == 3);
-	SELFTEST_ASSERT(iovptr == &iov[1]);
-	for (i = 128; i < 256; i++)
-		SELFTEST_ASSERT(out_buf[i] == i);
-
-	len = memcpy_fromiovec_safe(out_buf, &iovptr, 0, &iovcount);
-	SELFTEST_ASSERT(len == 0);
-	SELFTEST_ASSERT(iovcount == 3);
-	SELFTEST_ASSERT(iovptr == &iov[1]);
-
-	len = memcpy_fromiovec_safe(out_buf, &iovptr, 1, &iovcount);
-	SELFTEST_ASSERT(len == 0);
-	SELFTEST_ASSERT(iovcount == 3);
-	SELFTEST_ASSERT(iovptr == &iov[1]);
-	for (i = 0; i < 1; i++)
-		SELFTEST_ASSERT(out_buf[i] == i);
-
-	len = memcpy_fromiovec_safe(out_buf + i, &iovptr, 2, &iovcount);
-	SELFTEST_ASSERT(len == 0);
-	SELFTEST_ASSERT(iovcount == 3);
-	SELFTEST_ASSERT(iovptr == &iov[1]);
-	for (; i < 3; i++)
-		SELFTEST_ASSERT(out_buf[i] == i);
-
-	len = memcpy_fromiovec_safe(out_buf + i, &iovptr, 37, &iovcount);
-	SELFTEST_ASSERT(len == 0);
-	SELFTEST_ASSERT(iovcount == 2); /* Cross iov boundary */
-	SELFTEST_ASSERT(iovptr == &iov[2]);
-	for (; i < 40; i++)
-		SELFTEST_ASSERT(out_buf[i] == i);
-
-	len = memcpy_fromiovec_safe(out_buf + i, &iovptr, 100, &iovcount);
-	SELFTEST_ASSERT(len == 12); /* Didn't walk past the end of the iovec */
-	SELFTEST_ASSERT(iovcount == 0);
-	for (; i < 128; i++)
-		SELFTEST_ASSERT(out_buf[i] == i);
-
-	return 0;
-}
-core_init(iovec_selftest);

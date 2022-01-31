@@ -1,18 +1,13 @@
 #ifndef KVM__VIRTIO_H
 #define KVM__VIRTIO_H
 
-#include <endian.h>
+#include <xen/types.h>
 
-#include <linux/virtio_ring.h>
-#include <linux/virtio_pci.h>
+#include <asm/viommu/linux/virtio_ring.h>
 
-#include <linux/types.h>
-#include <linux/compiler.h>
-#include <linux/virtio_config.h>
-#include <sys/uio.h>
+#include <asm/viommu/linux/virtio_config.h>
 
-#include "kvm/barrier.h"
-#include "kvm/kvm.h"
+#include "kvm.h"
 
 #define VIRTIO_IRQ_LOW		0
 #define VIRTIO_IRQ_HIGH		1
@@ -297,14 +292,12 @@ struct virtio_device {
 	bool			legacy;
 	bool			use_vhost;
 	bool			use_iommu;
-	bool			no_eventfd;
 	void			*virtio;
 	struct virtio_ops	*ops;
 	u16			endian;
 	u32			features;
 	u32			status;
 	void			*iommu_domain;
-	bool			translate_msi;
 };
 
 struct virtio_ops {
@@ -323,14 +316,15 @@ struct virtio_ops {
 	int (*signal_config)(struct kvm *kvm, struct virtio_device *vdev);
 	void (*notify_status)(struct kvm *kvm, void *dev, u32 status);
 	int (*init)(struct kvm *kvm, void *dev, struct virtio_device *vdev,
-		    int device_id, int subsys_id, int class);
+		    int device_id, int subsys_id, int class, u64 base, u32 irq);
 	int (*exit)(struct kvm *kvm, struct virtio_device *vdev);
 	int (*reset)(struct kvm *kvm, struct virtio_device *vdev);
 };
 
 int __must_check virtio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 			     struct virtio_ops *ops, enum virtio_trans trans,
-			     int device_id, int subsys_id, int class);
+			     int device_id, int subsys_id, int class, u64 base, u32 irq);
+void virtio_exit(struct kvm *kvm, struct virtio_device *vdev);
 int virtio_compat_add_message(const char *device, const char *config);
 const char* virtio_trans_name(enum virtio_trans trans);
 void virtio_init_device_vq(struct kvm *kvm, struct virtio_device *vdev,

@@ -9,15 +9,19 @@
  * attach must wait for all concurrent DMA to finish, and make sure that
  * subsequent DMA won't see a cached version of the mapping.
  */
-#include <errno.h>
 
-#include "kvm/iommu.h"
-#include "kvm/kvm.h"
-#include "kvm/msi.h"
-#include "kvm/mutex.h"
-#include "kvm/rbtree-interval.h"
+#include <xen/err.h>
+#include <xen/interval_tree.h>
+#include <xen/sched.h>
+#include <xen/types.h>
 
-#include <linux/list.h>
+#include <asm/viommu/kvm/iommu.h>
+#include <asm/viommu/kvm/kvm.h>
+
+/*
+ * Xen: The major change is to use Linux's interval_tree instead of
+ * KVM's rbtree-interval.
+ */
 
 struct iommu_domain_stats {
 	u64				accesses;
@@ -26,7 +30,7 @@ struct iommu_domain_stats {
 };
 
 struct iommu_mapping {
-	struct rb_int_node		iova_range;
+	struct interval_tree_node	iova_range;
 	u64				phys;
 	int				prot;
 
@@ -34,7 +38,7 @@ struct iommu_mapping {
 };
 
 struct iommu_domain {
-	struct rb_root			mappings;
+	struct rb_root_cached		mappings;
 	struct mutex			mutex;
 	struct list_head		endpoints;
 
@@ -60,7 +64,7 @@ tlb_get_free_entry(struct iommu_domain *domain, struct iommu_endpoint *ep)
 	struct iommu_tlb_entry *entry;
 
 	if (list_empty(&domain->free_tlb_entries)) {
-		entry = calloc(1, sizeof(*entry));
+		entry = xzalloc(struct iommu_tlb_entry);
 		if (!entry)
 			return NULL;
 
@@ -111,18 +115,18 @@ static int tlb_invalidate_entries(struct iommu_domain *domain)
 
 static void iommu_dump(struct iommu_domain *domain, int fd)
 {
-	struct rb_node *node;
+	struct interval_tree_node *node;
 	struct iommu_mapping *map;
 
 	mutex_lock(&domain->mutex);
 
 	dprintf(fd, "START IOMMU DUMP [[[\n"); /* You did ask for it. */
-	for (node = rb_first(&domain->mappings); node; node = rb_next(node)) {
-		struct rb_int_node *int_node = rb_int(node);
-		map = container_of(int_node, struct iommu_mapping, iova_range);
+	for (node = interval_tree_iter_first(&domain->mappings, 0, -1UL); node;
+			node = interval_tree_iter_next(node, 0, -1UL)) {
+		map = container_of(node, struct iommu_mapping, iova_range);
 
-		dprintf(fd, "%#llx-%#llx -> %#llx %#x\n", int_node->low,
-			int_node->high, map->phys, map->prot);
+		dprintf(fd, "%#lx-%#lx -> %#lx %#x\n", node->start,
+			node->last, map->phys, map->prot);
 	}
 	dprintf(fd, "]]] END IOMMU DUMP\n");
 
@@ -135,11 +139,11 @@ int iommu_debug_domain(void *priv, int fd, struct iommu_debug_params *params)
 
 	switch (params->action) {
 	case IOMMU_DEBUG_STATS:
-		dprintf(fd, "    accesses            %llu\n",
+		dprintf(fd, "    accesses            %lu\n",
 			domain->stats.accesses);
-		dprintf(fd, "    release             %llu\n",
+		dprintf(fd, "    release             %lu\n",
 			domain->stats.release);
-		dprintf(fd, "    invalidate          %llu\n",
+		dprintf(fd, "    invalidate          %lu\n",
 			domain->stats.invalidate);
 		break;
 	case IOMMU_DEBUG_SET_PRINT:
@@ -156,12 +160,12 @@ int iommu_debug_domain(void *priv, int fd, struct iommu_debug_params *params)
 
 void *iommu_alloc_domain(struct device_header *unused)
 {
-	struct iommu_domain *domain = calloc(1, sizeof(*domain));
+	struct iommu_domain *domain = xzalloc(struct iommu_domain);
 
 	if (!domain)
 		return NULL;
 
-	domain->mappings = (struct rb_root)RB_ROOT;
+	domain->mappings = RB_ROOT_CACHED;
 	mutex_init(&domain->mutex);
 	INIT_LIST_HEAD(&domain->endpoints);
 	INIT_LIST_HEAD(&domain->used_tlb_entries);
@@ -176,28 +180,25 @@ void iommu_free_domain(void *priv)
 	struct iommu_tlb_entry *tlbe, *next_tlbe;
 	struct iommu_endpoint *ep, *ep_next;
 	struct iommu_domain *domain = priv;
-	struct rb_int_node *int_node;
-	struct rb_node *node, *next;
+	struct interval_tree_node *node, *next;
 	struct iommu_mapping *map;
 
 	mutex_lock(&domain->mutex);
 	/* All devices should have been detached */
 	WARN_ON(!list_empty(&domain->used_tlb_entries));
 
-	/* Postorder allows to free leaves first. */
-	node = rb_first_postorder(&domain->mappings);
-	while (node) {
-		next = rb_next_postorder(node);
+	next = interval_tree_iter_first(&domain->mappings, 0, -1UL);
+	while (next) {
+		node = next;
+		map = container_of(node, struct iommu_mapping, iova_range);
+		next = interval_tree_iter_next(node, 0, -1UL);
 
-		int_node = rb_int(node);
-		map = container_of(int_node, struct iommu_mapping, iova_range);
 		list_for_each_entry_safe(tlbe, next_tlbe, &map->tlb_entries, map_head) {
 			list_del_init(&tlbe->map_head);
 			list_move(&tlbe->domain_head, &domain->invalid_tlb_entries);
 		}
-		free(map);
-
-		node = next;
+		interval_tree_remove(node, &domain->mappings);
+		xfree(map);
 	}
 	mutex_unlock(&domain->mutex);
 
@@ -205,12 +206,12 @@ void iommu_free_domain(void *priv)
 	tlb_invalidate_entries(domain);
 
 	list_for_each_entry_safe(tlbe, next_tlbe, &domain->free_tlb_entries, domain_head)
-		free(tlbe);
+		xfree(tlbe);
 
 	list_for_each_entry_safe(ep, ep_next, &domain->endpoints, head)
-		free(ep);
+		xfree(ep);
 
-	free(domain);
+	xfree(domain);
 }
 
 static struct iommu_endpoint *domain_get_endpoint(struct iommu_domain *domain,
@@ -232,7 +233,7 @@ int iommu_attach(void *priv, struct device_header *dev,
 	struct iommu_endpoint *ep;
 	struct iommu_domain *domain = priv;
 
-	ep = calloc(1, sizeof(*ep));
+	ep = xzalloc(struct iommu_endpoint);
 	if (!ep)
 		return -ENOMEM;
 
@@ -271,12 +272,12 @@ int iommu_detach(void *priv, struct device_header *dev)
 
 	tlb_invalidate_entries(domain);
 
-	free(ep);
+	xfree(ep);
 
 	return 0;
 }
 
-int iommu_map(void *priv, u64 virt_start, u64 virt_end, u64 phys, int prot)
+int iommu_map_range(void *priv, u64 virt_start, u64 virt_end, u64 phys, int prot)
 {
 	struct iommu_domain *domain = priv;
 	struct iommu_mapping *map;
@@ -284,26 +285,28 @@ int iommu_map(void *priv, u64 virt_start, u64 virt_end, u64 phys, int prot)
 	if (!domain)
 		return -ENODEV;
 
-	map = malloc(sizeof(*map));
+	map = xmalloc(struct iommu_mapping);
 	if (!map)
 		return -ENOMEM;
 
 	map->phys = phys;
-	map->iova_range = RB_INT_INIT(virt_start, virt_end);
+	map->iova_range.start = virt_start;
+	map->iova_range.last = virt_end;
+
 	map->prot = prot;
 	INIT_LIST_HEAD(&map->tlb_entries);
 
 	mutex_lock(&domain->mutex);
-	rb_int_insert(&domain->mappings, &map->iova_range);
+	interval_tree_insert(&map->iova_range, &domain->mappings);
 	mutex_unlock(&domain->mutex);
 
 	return 0;
 }
 
-int iommu_unmap(void *priv, u64 start, u64 end, int flags)
+int iommu_unmap_range(void *priv, u64 start, u64 end, int flags)
 {
 	int ret = 0;
-	struct rb_int_node *node;
+	struct interval_tree_node *node, *next;
 	struct iommu_mapping *map;
 	struct iommu_tlb_entry *tlbe, *next_tlbe;
 	struct iommu_domain *domain = priv;
@@ -313,36 +316,33 @@ int iommu_unmap(void *priv, u64 start, u64 end, int flags)
 		return -ENODEV;
 
 	mutex_lock(&domain->mutex);
-	node = rb_int_search_single(&domain->mappings, start);
-	if (!node) {
+	next = interval_tree_iter_first(&domain->mappings, start, end);
+	if (!next) {
 		if (!silent)
 			pr_debug("mapping not found");
 		ret = -ENXIO;
 	}
 
-	while (node) {
-		struct rb_node *next = rb_next(&node->node);
+	while (next) {
+		node = next;
 		map = container_of(node, struct iommu_mapping, iova_range);
+		next = interval_tree_iter_next(node, start, end);
 
-		if (node->low > end)
-			break;
-
-		if (node->high > end) {
+		if (map->iova_range.start < start) {
 			if (!silent)
 				pr_debug("cannot split mapping");
 			ret = -ERANGE;
 			break;
 		}
 
-		rb_erase(&node->node, &domain->mappings);
-
 		/* Move cached entry to the invalidation queue */
 		list_for_each_entry_safe(tlbe, next_tlbe, &map->tlb_entries, map_head) {
 			list_del_init(&tlbe->map_head);
 			list_move(&tlbe->domain_head, &domain->invalid_tlb_entries);
 		}
-		free(map);
-		node = next ? container_of(next, struct rb_int_node, node) : NULL;
+		interval_tree_remove(node, &domain->mappings);
+		xfree(map);
+		break;
 	}
 	mutex_unlock(&domain->mutex);
 
@@ -371,31 +371,31 @@ iommu_access(struct device_header *dev, void *priv, u64 addr, size_t size,
 	struct iommu_domain *domain = priv;
 	struct iommu_endpoint *ep;
 	struct iommu_mapping *map;
-	struct rb_int_node *node;
+	struct interval_tree_node *node;
 	size_t out_size;
 	u64 out_addr = 0;
 
 	if (!domain) {
 		pr_err("no domain attached");
 		viommu_report_fault(dev, IOMMU_FAULT_DOMAIN, addr, prot);
-		errno = ENODEV;
+		/*errno = ENODEV;*/
 		return 0;
 	}
 
 	mutex_lock(&domain->mutex);
-	node = rb_int_search_single(&domain->mappings, addr);
+	node = interval_tree_iter_first(&domain->mappings, addr, addr + size - 1);
 	if (!node) {
-		pr_err("fault at IOVA %#llx %zu", addr, size);
+		pr_err("fault at IOVA %#lx %zu", addr, size);
 		viommu_report_fault(dev, IOMMU_FAULT_MAPPING, addr, prot);
-		errno = EFAULT;
+		/*errno = EFAULT;*/
 		goto out_unlock;
 	}
 
 	map = container_of(node, struct iommu_mapping, iova_range);
 	if (prot & ~map->prot) {
-		pr_err("permission fault at IOVA %#llx", addr);
+		pr_err("permission fault at IOVA %#lx", addr);
 		viommu_report_fault(dev, IOMMU_FAULT_MAPPING, addr, prot);
-		errno = EPERM;
+		/*errno = EPERM;*/
 		goto out_unlock;
 	}
 
@@ -406,8 +406,8 @@ iommu_access(struct device_header *dev, void *priv, u64 addr, size_t size,
 	if (!tlbe)
 		goto out_unlock;
 
-	out_addr = map->phys + (addr - node->low);
-	out_size = min_t(size_t, node->high - addr + 1, size);
+	out_addr = map->phys + (addr - map->iova_range.start);
+	out_size = min_t(size_t, map->iova_range.last - addr + 1, size);
 
 	tlbe->virt_start = addr;
 	tlbe->virt_end = addr + out_size - 1;
@@ -415,7 +415,7 @@ iommu_access(struct device_header *dev, void *priv, u64 addr, size_t size,
 	list_add(&tlbe->map_head, &map->tlb_entries);
 
 	if (domain->debug_level >= IOMMU_DEBUG_L_INFO)
-		pr_info("access %llx %zu/%zu %s%s -> %#llx", addr, out_size,
+		pr_info("access %lx %zu/%zu %s%s -> %#lx", addr, out_size,
 			size, prot & IOMMU_PROT_READ ? "R" : "",
 			prot & IOMMU_PROT_WRITE ? "W" : "", out_addr);
 
@@ -440,31 +440,4 @@ void iommu_release(void *priv, struct iommu_tlb_entry *entry)
 	domain->stats.release++;
 	list_move(&entry->domain_head, &domain->free_tlb_entries);
 	mutex_unlock(&domain->mutex);
-}
-
-int iommu_translate_msi(struct device_header *dev, void *domain,
-			struct msi_msg *msg)
-{
-	size_t size = 4;
-	struct iommu_tlb_entry *tlbe;
-	u64 addr = ((u64)msg->address_hi << 32) | msg->address_lo;
-
-	tlbe = iommu_access(dev, domain, addr, size, IOMMU_PROT_WRITE);
-	if (!tlbe) {
-		pr_err("could not translate MSI doorbell");
-		return -EFAULT;
-	}
-
-	msg->address_lo = tlbe->phys & 0xffffffff;
-	msg->address_hi = tlbe->phys >> 32;
-
-	/*
-	 * TODO: release TLBE once the message is removed from the MSI-X table.
-	 * Currently we have to release early, otherwise an invalidate would
-	 * block indefinitely on this address. But we have no guarantee that the
-	 * device won't access it after an invalidate.
-	 */
-	iommu_release(domain, tlbe);
-
-	return 0;
 }

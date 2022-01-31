@@ -1,0 +1,10 @@
+config VIRTIO_IOMMU
+	bool "Enable basic VIRTIO-IOMMU device support"
+	default n
+	depends on IOREQ_SERVER
+	---help---
+	  Enables VIRTIO-IOMMU backend which main purpose is to restrict foreign
+	  memory mappings for the VIRTIO backends running in unprivileged domains.
+	  The backend allows to map only those foreign pages which are implicitly
+	  granted by the frontend.
+	  https://docs.oasis-open.org/virtio/virtio/v1.1/virtio-v1.1.html

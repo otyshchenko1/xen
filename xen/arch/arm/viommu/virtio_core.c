@@ -1,24 +1,29 @@
-#include <linux/virtio_ids.h>
-#include <linux/virtio_ring.h>
-#include <linux/types.h>
-#include <sys/uio.h>
-#include <stdbool.h>
-#include <stdlib.h>
 
-#include <linux/err.h>
+#include <xen/err.h>
+#include <xen/sched.h>
+#include <xen/types.h>
 
-#include "kvm/guest_compat.h"
-#include "kvm/barrier.h"
-#include "kvm/iommu.h"
-#include "kvm/virtio.h"
-#include "kvm/virtio-iommu.h"
-#include "kvm/virtio-pci.h"
-#include "kvm/virtio-mmio.h"
-#include "kvm/util.h"
-#include "kvm/kvm.h"
+#include <asm/viommu/viommu.h>
+
+#include <asm/viommu/kvm/virtio.h>
+#include <asm/viommu/kvm/virtio-mmio.h>
+#include <asm/viommu/kvm/kvm.h>
+#include <asm/viommu/kvm/iommu.h>
+#include <asm/viommu/kvm/virtio-iommu.h>
+#include <asm/viommu/kvm/iovec.h>
+
+#include <asm/viommu/linux/virtio_ids.h>
+
+/*
+ * Xen: The major change is to replace guest_flat_to_host() with
+ * viommu_map_guest_range() and take care of unmaping what was previously
+ * mapped using viommu_unmap_guest_range().
+ * Also implement virtio_exit() to free resources when destroying Xen domain
+ * and pass MMIO base and irq via different layers.
+ */
 
 static void *iommu = NULL;
-static struct iommu_properties iommu_props = {
+struct iommu_properties iommu_props = {
 	.name			= "viommu-virtio",
 	/*
 	 * Note that legacy virtio devices aren't supported. Otherwise this
@@ -26,6 +31,7 @@ static struct iommu_properties iommu_props = {
 	 * 32-bit PFNs + 12-bit granule.
 	 */
 	.input_addr_size	= 64,
+	.pgsize_mask		= 0,
 };
 
 const char* virtio_trans_name(enum virtio_trans trans)
@@ -44,7 +50,8 @@ static int virt_queue__realloc_iov(struct virt_buf *buf, size_t cnt)
 	if (cnt <= buf->cnt)
 		return 0;
 
-	buf->iov = realloc(buf->iov, cnt * sizeof(*buf->iov));
+	/* XXX xrealloc_flex_struct? */
+	buf->iov = _xrealloc(buf->iov, cnt * sizeof(*buf->iov), sizeof(*buf->iov));
 	if (!buf->iov)
 		return -ENOMEM;
 
@@ -83,7 +90,7 @@ static void *virt_queue_access(struct kvm *kvm, struct virtio_device *vdev,
 		tlbe->dev = buf;
 	}
 
-	return guest_flat_to_host(kvm, paddr);
+	return viommu_map_guest_range(kvm, paddr, *out_size);
 }
 
 /*
@@ -260,7 +267,7 @@ static void *virtio_map_table(struct kvm *kvm, struct virtio_device *vdev,
 	size_t iov_len;
 
 	if (!vdev->use_iommu)
-		return guest_flat_to_host(kvm, addr);
+		return viommu_map_guest_range(kvm, addr, len);
 
 	/*
 	 * Virtio structure need to be accessed through the IOMMU, mapped at
@@ -292,7 +299,7 @@ static int __virt_queue__get_head_iov(struct virt_queue *vq, struct virt_buf *bu
 	struct virt_buf *desc_buf;
 	unsigned long addr;
 	bool is_write;
-	size_t len;
+	size_t len, mapped = 0;
 	u16 idx;
 	u16 max;
 	int ret;
@@ -306,7 +313,7 @@ static int __virt_queue__get_head_iov(struct virt_queue *vq, struct virt_buf *bu
 
 	if (virt_desc__test_flag(vq, desc, VRING_DESC_F_INDIRECT)) {
 		idx = 0;
-		len = virtio_guest_to_host_u32(vq, desc->len);
+		mapped = len = virtio_guest_to_host_u32(vq, desc->len);
 		addr = virtio_guest_to_host_u64(vq, desc->addr);
 
 		max = len / sizeof(struct vring_desc);
@@ -315,7 +322,7 @@ static int __virt_queue__get_head_iov(struct virt_queue *vq, struct virt_buf *bu
 		virt_queue__put_buf(vq, desc_buf);
 		desc_buf = virt_queue__get_buf(vq, &vq->indirect_buf);
 		desc_base = virtio_map_table(kvm, vq->vdev, addr, len,
-					     PROT_READ, desc_buf);
+				IOMMU_PROT_READ, desc_buf);
 		if (!desc_base) {
 			ret = -EFAULT;
 			goto out_put_buf;
@@ -345,6 +352,8 @@ static int __virt_queue__get_head_iov(struct virt_queue *vq, struct virt_buf *bu
 
 	ret = head;
 out_put_buf:
+	if (desc_base && mapped)
+		viommu_unmap_guest_range(desc_base, mapped);
 	virt_queue__put_buf(vq, desc_buf);
 	return ret;
 }
@@ -539,7 +548,8 @@ void virtio_init_device_vq(struct kvm *kvm, struct virtio_device *vdev,
 
 	if (addr->legacy) {
 		unsigned long base = (u64)addr->pfn * addr->pgsize;
-		void *p = guest_flat_to_host(kvm, base);
+		void *p = viommu_map_guest_range(kvm, base,
+				vring_size(vdev->ops->get_size_vq(kvm, NULL, 0), addr->align));
 
 		/* The IOMMU doesn't exist as a legacy device */
 		BUG_ON(vdev->iommu_domain);
@@ -551,6 +561,8 @@ void virtio_init_device_vq(struct kvm *kvm, struct virtio_device *vdev,
 
 		if (vdev->use_iommu) {
 			vq->use_iommu = true;
+			/* XXX For now */
+			ASSERT_UNREACHABLE();
 			/* These are IOVAs */
 			vq->vring = (struct vring) {
 				.desc = (void *)desc,
@@ -560,11 +572,14 @@ void virtio_init_device_vq(struct kvm *kvm, struct virtio_device *vdev,
 			};
 		} else {
 			vq->vring = (struct vring) {
-				.desc = guest_flat_to_host(kvm, desc),
-				.used = guest_flat_to_host(kvm, used),
-				.avail = guest_flat_to_host(kvm, avail),
+				.desc = viommu_map_guest_range(kvm, desc, PAGE_SIZE),
+				.used = viommu_map_guest_range(kvm, used, PAGE_SIZE),
+				.avail = viommu_map_guest_range(kvm, avail, PAGE_SIZE),
 				.num = nr_descs,
 			};
+			BUG_ON(!vq->vring.desc);
+			BUG_ON(!vq->vring.used);
+			BUG_ON(!vq->vring.avail);
 		}
 	}
 }
@@ -574,8 +589,14 @@ void virtio_exit_vq(struct kvm *kvm, struct virtio_device *vdev,
 {
 	struct virt_queue *vq = vdev->ops->get_vq(kvm, dev, num);
 
-	if (vq->enabled && vdev->ops->exit_vq)
-		vdev->ops->exit_vq(kvm, dev, num);
+	if (vq->enabled) {
+		viommu_unmap_guest_range(vq->vring.desc, PAGE_SIZE);
+		viommu_unmap_guest_range(vq->vring.used, PAGE_SIZE);
+		viommu_unmap_guest_range(vq->vring.avail, PAGE_SIZE);
+
+		if (vdev->ops->exit_vq)
+			vdev->ops->exit_vq(kvm, dev, num);
+	}
 	memset(vq, 0, sizeof(*vq));
 }
 
@@ -791,7 +812,7 @@ bool virtio_write_config(struct kvm *kvm, struct virtio_device *vdev, void *dev,
 
 int virtio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 		struct virtio_ops *ops, enum virtio_trans trans,
-		int device_id, int subsys_id, int class)
+		int device_id, int subsys_id, int class, u64 base, u32 irq)
 {
 	void *virtio;
 	int r;
@@ -805,7 +826,7 @@ int virtio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 		 * this device.
 		 */
 		if (!iommu) {
-			iommu = viommu_register(kvm, &iommu_props);
+			iommu = viommu_register(kvm, &iommu_props, base, irq);
 			if (IS_ERR(iommu)) {
 				int ret = PTR_ERR(iommu);
 
@@ -818,32 +839,19 @@ int virtio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 
 		if (iommu) {
 			vdev->use_iommu = true;
-			vdev->translate_msi = !iommu_props.msi_window.start;
+			/* XXX For now */
+			ASSERT_UNREACHABLE();
 		}
 	}
 
 	switch (trans) {
-	case VIRTIO_PCI_LEGACY:
-		vdev->legacy			= true;
-		/* fall through */
-	case VIRTIO_PCI:
-		virtio = calloc(sizeof(struct virtio_pci), 1);
-		if (!virtio)
-			return -ENOMEM;
-		vdev->virtio			= virtio;
-		vdev->ops			= ops;
-		vdev->ops->signal_vq		= virtio_pci__signal_vq;
-		vdev->ops->signal_config	= virtio_pci__signal_config;
-		vdev->ops->init			= virtio_pci__init;
-		vdev->ops->exit			= virtio_pci__exit;
-		vdev->ops->reset		= virtio_pci__reset;
-		r = vdev->ops->init(kvm, dev, vdev, device_id, subsys_id, class);
-		break;
 	case VIRTIO_MMIO_LEGACY:
 		vdev->legacy			= true;
+		/* XXX For now */
+		ASSERT_UNREACHABLE();
 		/* fall through */
 	case VIRTIO_MMIO:
-		virtio = calloc(sizeof(struct virtio_mmio), 1);
+		virtio = xzalloc(struct virtio_mmio);
 		if (!virtio)
 			return -ENOMEM;
 		vdev->virtio			= virtio;
@@ -853,7 +861,8 @@ int virtio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 		vdev->ops->init			= virtio_mmio_init;
 		vdev->ops->exit			= virtio_mmio_exit;
 		vdev->ops->reset		= virtio_mmio_reset;
-		r = vdev->ops->init(kvm, dev, vdev, device_id, subsys_id, class);
+		r = vdev->ops->init(kvm, dev, vdev, device_id, subsys_id, class,
+				base, irq);
 		break;
 	default:
 		r = -1;
@@ -867,34 +876,9 @@ int virtio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
 	return r;
 }
 
-int virtio_compat_add_message(const char *device, const char *config)
+void virtio_exit(struct kvm *kvm, struct virtio_device *vdev)
 {
-	int len = 1024;
-	int compat_id;
-	char *title;
-	char *desc;
-
-	title = malloc(len);
-	if (!title)
-		return -ENOMEM;
-
-	desc = malloc(len);
-	if (!desc) {
-		free(title);
-		return -ENOMEM;
-	}
-
-	snprintf(title, len, "%s device was not detected.", device);
-	snprintf(desc,  len, "While you have requested a %s device, "
-			     "the guest kernel did not initialize it.\n"
-			     "\tPlease make sure that the guest kernel was "
-			     "compiled with %s=y enabled in .config.",
-			     device, config);
-
-	compat_id = compat__add_message(title, desc);
-
-	free(desc);
-	free(title);
-
-	return compat_id;
+	vdev->ops->exit(kvm, vdev);
+	xfree(vdev->virtio);
+	vdev->virtio = NULL;
 }

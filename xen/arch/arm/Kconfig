@@ -106,6 +106,8 @@ config TEE
 
 source "arch/arm/tee/Kconfig"
 
+source "arch/arm/viommu/Kconfig"
+
 endmenu
 
 menu "ARM errata workaround via the alternative framework"
