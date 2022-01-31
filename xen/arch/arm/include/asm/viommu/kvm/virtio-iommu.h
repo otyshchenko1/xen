@@ -61,6 +61,8 @@ struct kvm;
 int viommu_update_config(void *viommu, struct iommu_properties *props);
 void *viommu_register(struct kvm *kvm, struct iommu_properties *props, u64 base, u32 irq);
 void viommu_unregister(struct kvm *kvm, void *cookie);
+bool viommu_gfn_foreign_access_permitted(struct domain *d, struct domain *fd,
+		unsigned long gfn, unsigned long nr_gfns);
 
 int viommu_debug(struct kvm *kvm, int fd, struct iommu_debug_params *);
 

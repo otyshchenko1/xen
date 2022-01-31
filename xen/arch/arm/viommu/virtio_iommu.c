@@ -728,6 +728,44 @@ static int _viommu_handle_requests(struct kvm *kvm,
 	return 0;
 }
 
+bool viommu_gfn_foreign_access_permitted(struct domain *d, struct domain *fd,
+		unsigned long gfn, unsigned long nr_gfns)
+{
+	struct iommu_tlb_entry *tlbe;
+	struct viommu_dev *viommu = fd->arch.viommu.priv;
+	struct virtio_device *vdev;
+	u64 addr;
+	size_t size;
+
+	if ( !domain_has_viommu(fd) )
+		return false;
+
+	vdev = &viommu->vdev;
+	if (!vdev || !vdev->iommu_domain)
+		return false;
+
+	/* XXX Proper PROT is unknown */
+	tlbe = iommu_access(vdev->dev, vdev->iommu_domain, gfn << PAGE_SHIFT,
+			nr_gfns << PAGE_SHIFT, IOMMU_PROT_NONE/*IOMMU_PROT_READ | IOMMU_PROT_WRITE*/);
+	if (!tlbe) {
+		gprintk(XENLOG_ERR, "gaddr 0x%lx (0x%lx) is not mapped\n",
+				gfn << PAGE_SHIFT, nr_gfns << PAGE_SHIFT);
+		return false;
+	}
+	size = tlbe->virt_end - tlbe->virt_start + 1;
+	addr = tlbe->phys;
+
+	iommu_release(vdev->iommu_domain, tlbe);
+
+	if (addr != (gfn << PAGE_SHIFT) || size != (nr_gfns << PAGE_SHIFT)) {
+		gprintk(XENLOG_ERR, "requested gaddr 0x%lx (0x%lx) doesn't match mapped 0x%lx (0x%lx)\n",
+				gfn << PAGE_SHIFT, nr_gfns << PAGE_SHIFT, addr, size);
+		return false;
+	}
+
+	return true;
+}
+
 static int viommu_report_faults_locked(struct viommu_dev *viommu,
 				       struct virtio_iommu_fault *faults,
 				       size_t nr)
