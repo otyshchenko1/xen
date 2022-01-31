@@ -648,6 +648,9 @@ libxl_domain_build_info = Struct("domain_build_info",[
 
 
     ("arch_arm", Struct(None, [("gic_version", libxl_gic_version),
+                               ("viommu_enable", libxl_defbool),
+                               ("viommu_irq", uint32),
+                               ("viommu_base", uint64),
                                ("vuart", libxl_vuart_type),
                               ])),
     ("arch_x86", Struct(None, [("msr_relaxed", libxl_defbool),

@@ -78,6 +78,8 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
     unsigned int i;
     uint32_t vuart_irq, virtio_irq = 0;
     bool vuart_enabled = false, virtio_enabled = false;
+    uint32_t viommu_irq = 0;
+    uint64_t viommu_base = 0;
 
     /*
      * If pl011 vuart is enabled then increment the nr_spis to allow allocation
@@ -115,8 +117,28 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
         }
     }
 
-    if (virtio_enabled)
+    if (virtio_enabled) {
+        if (libxl_defbool_val(d_config->b_info.arch_arm.viommu_enable)) {
+            viommu_base = alloc_virtio_mmio_base(gc);
+            if (!viommu_base)
+                return ERROR_FAIL;
+
+            viommu_irq = alloc_virtio_mmio_irq(gc);
+            if (!viommu_irq)
+                return ERROR_FAIL;
+
+            if (virtio_irq < viommu_irq)
+                virtio_irq = viommu_irq;
+
+            LOG(DEBUG, "Allocate Virtio MMIO params for vIOMMU: IRQ %u BASE 0x%"PRIx64,
+                viommu_irq, viommu_base);
+        }
+
         nr_spis += (virtio_irq - 32) + 1;
+    } else if (libxl_defbool_val(d_config->b_info.arch_arm.viommu_enable)) {
+        LOG(WARN, "No Virtio devices are present, ignore 'virtio_iommu' option");
+        libxl_defbool_set(&d_config->b_info.arch_arm.viommu_enable, false);
+    }
 
     for (i = 0; i < d_config->b_info.num_irqs; i++) {
         uint32_t irq = d_config->b_info.irqs[i];
@@ -186,6 +208,11 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
             d_config->b_info.tee);
         return ERROR_FAIL;
     }
+
+    config->arch.viommu_enable =
+        libxl_defbool_val(d_config->b_info.arch_arm.viommu_enable) ? 1 : 0;
+    config->arch.viommu_base = d_config->b_info.arch_arm.viommu_base = viommu_base;
+    config->arch.viommu_irq = d_config->b_info.arch_arm.viommu_irq = viommu_irq;
 
     if (d_config->num_vgsxs) {
         libxl_device_vgsx *vgsx;
@@ -907,8 +934,14 @@ static int make_vpci_node(libxl__gc *gc, void *fdt,
     return 0;
 }
 
+enum virtio_mmio_node {
+    VIRTIO_DEV_WITHOUT_IOMMU,
+    VIRTIO_DEV_WITH_IOMMU,
+    VIRTIO_IOMMU,
+};
 
 static int make_virtio_mmio_node(libxl__gc *gc, void *fdt,
+                                 enum virtio_mmio_node node, uint32_t phandle,
                                  uint64_t base, uint32_t irq)
 {
     int res;
@@ -933,6 +966,21 @@ static int make_virtio_mmio_node(libxl__gc *gc, void *fdt,
 
     res = fdt_property(fdt, "dma-coherent", NULL, 0);
     if (res) return res;
+
+    if (node == VIRTIO_IOMMU) {
+        res = fdt_property_cell(fdt, "#iommu-cells", 1);
+        if (res) return res;
+
+        res = fdt_property_cell(fdt, "phandle", phandle);
+        if (res) return res;
+    } else if (node == VIRTIO_DEV_WITH_IOMMU) {
+        uint32_t iommus_prop[2];
+
+        iommus_prop[0] = cpu_to_fdt32(phandle);
+        iommus_prop[1] = cpu_to_fdt32(GUEST_VIRTIO_MMIO_IOMMU_ID);
+        res = fdt_property(fdt, "iommus", iommus_prop, sizeof(iommus_prop));
+        if (res) return res;
+    }
 
     res = fdt_end_node(fdt);
     if (res) return res;
@@ -1154,6 +1202,7 @@ static int libxl__prepare_dtb(libxl__gc *gc, libxl_domain_config *d_config,
     int pfdt_size = 0;
     libxl_domain_build_info *const info = &d_config->b_info;
     unsigned int i;
+    uint32_t viommu_phandle = 0;
 
     const libxl_version_info *vers;
     const struct arch_info *ainfo;
@@ -1260,11 +1309,23 @@ next_resize:
         if (d_config->num_pcidevs)
             FDT( make_vpci_node(gc, fdt, ainfo, dom) );
 
+        if (libxl_defbool_val(info->arch_arm.viommu_enable)) {
+            FDT( fdt_generate_phandle(fdt, &viommu_phandle) );
+            FDT( make_virtio_mmio_node(gc, fdt, VIRTIO_IOMMU,
+                                       viommu_phandle,
+                                       info->arch_arm.viommu_base,
+                                       info->arch_arm.viommu_irq) );
+        }
+
         for (i = 0; i < d_config->num_disks; i++) {
             libxl_device_disk *disk = &d_config->disks[i];
 
             if (disk->virtio)
-                FDT( make_virtio_mmio_node(gc, fdt, disk->base, disk->irq) );
+                FDT( make_virtio_mmio_node(gc, fdt, viommu_phandle
+                                           ? VIRTIO_DEV_WITH_IOMMU
+                                           : VIRTIO_DEV_WITHOUT_IOMMU,
+                                           viommu_phandle,
+                                           disk->base, disk->irq) );
         }
 
         if (pfdt)
@@ -1562,6 +1623,7 @@ void libxl__arch_domain_build_info_setdefault(libxl__gc *gc,
 {
     /* ACPI is disabled by default */
     libxl_defbool_setdefault(&b_info->acpi, false);
+    libxl_defbool_setdefault(&b_info->arch_arm.viommu_enable, false);
 
     if (b_info->type != LIBXL_DOMAIN_TYPE_PV)
         return;
