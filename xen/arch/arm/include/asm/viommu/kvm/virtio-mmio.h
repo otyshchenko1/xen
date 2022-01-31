@@ -1,21 +1,17 @@
 #ifndef KVM__VIRTIO_MMIO_H
 #define KVM__VIRTIO_MMIO_H
 
-#include <linux/types.h>
-#include <linux/virtio_mmio.h>
+#include <xen/types.h>
 
-#include <kvm/kvm-cpu.h>
+#include <asm/viommu/linux/virtio_mmio.h>
+#include "devices.h"
+#include "kvm.h"
 
 #define VIRTIO_MMIO_MAX_VQ	32
 #define VIRTIO_MMIO_MAX_CONFIG	1
 #define VIRTIO_MMIO_IO_SIZE	0x200
 
 struct kvm;
-
-struct virtio_mmio_ioevent_param {
-	struct virtio_device	*vdev;
-	u32			vq;
-};
 
 struct virtio_mmio_hdr {
 	char	magic[4];
@@ -54,14 +50,13 @@ struct virtio_mmio_hdr {
 } __attribute__((packed));
 
 struct virtio_mmio {
-	u32			addr;
+	u64			addr;
 	void			*dev;
 	struct virtio_device	*vdev;
 	struct kvm		*kvm;
-	u8			irq;
+	u32			irq;
 	struct virtio_mmio_hdr	hdr;
 	struct device_header	dev_hdr;
-	struct virtio_mmio_ioevent_param ioeventfds[VIRTIO_MMIO_MAX_VQ];
 };
 
 int virtio_mmio_signal_vq(struct kvm *kvm, struct virtio_device *vdev, u32 vq);
@@ -69,15 +64,13 @@ int virtio_mmio_signal_config(struct kvm *kvm, struct virtio_device *vdev);
 int virtio_mmio_exit(struct kvm *kvm, struct virtio_device *vdev);
 int virtio_mmio_reset(struct kvm *kvm, struct virtio_device *vdev);
 int virtio_mmio_init(struct kvm *kvm, void *dev, struct virtio_device *vdev,
-		      int device_id, int subsys_id, int class);
-int virtio_mmio_init_ioeventfd(struct kvm *kvm, struct virtio_device *vdev,
-			       u32 vq);
+		      int device_id, int subsys_id, int class, u64 base, u32 irq);
 void virtio_mmio_device_specific(struct kvm_cpu *vcpu, u64 addr, u8 *data,
 				 u32 len, u8 is_write,
 				 struct virtio_device *vdev);
 
-void virtio_mmio_legacy_callback(struct kvm_cpu *vcpu, u64 addr, u8 *data,
-				 u32 len, u8 is_write, void *ptr);
+static inline void virtio_mmio_legacy_callback(struct kvm_cpu *vcpu, u64 addr, u8 *data,
+				 u32 len, u8 is_write, void *ptr) {}
 void virtio_mmio_modern_callback(struct kvm_cpu *vcpu, u64 addr, u8 *data,
 				 u32 len, u8 is_write, void *ptr);
 int virtio_mmio_init_vq(struct kvm *kvm, struct virtio_device *vdev, int vq);

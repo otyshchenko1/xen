@@ -1,11 +1,9 @@
 #ifndef KVM_IOMMU_H
 #define KVM_IOMMU_H
 
-#include <stdbool.h>
-#include <stdlib.h>
-#include <linux/types.h>
+#include <xen/types.h>
 
-#include "kvm/devices.h"
+#include "devices.h"
 
 #define IOMMU_PROT_NONE			0x0
 #define IOMMU_PROT_READ			0x1
@@ -82,19 +80,18 @@ void iommu_free_domain(void *domain);
 int iommu_attach(void *domain, struct device_header *dev,
 		 iommu_invalidate_cb invalidate, void *cookie);
 int iommu_detach(void *domain, struct device_header *dev);
-int iommu_map(void *domain, u64 virt_start, u64 virt_end, u64 phys, int prot);
-int iommu_unmap(void *domain, u64 virt_start, u64 virt_end, int flags);
+/*
+ * XXX iommu_map/unmap already declared in drivers/passthrough/iommu.c
+ * Add "range" postfix for now.
+ */
+int iommu_map_range(void *domain, u64 virt_start, u64 virt_end, u64 phys, int prot);
+int iommu_unmap_range(void *domain, u64 virt_start, u64 virt_end, int flags);
 struct iommu_tlb_entry *
 iommu_access(struct device_header *dev, void *priv, u64 addr, size_t size,
 	     int prot);
 void iommu_release(void *priv, struct iommu_tlb_entry *entry);
 void iommu_release_locked(void *priv, struct iommu_tlb_entry *entry);
 int iommu_debug_domain(void *domain, int fd, struct iommu_debug_params *params);
-
-struct msi_msg;
-
-int iommu_translate_msi(struct device_header *dev_hdr, void *domain,
-			struct msi_msg *msi);
 
 int viommu_report_fault(struct device_header *dev,
 			enum iommu_fault_reason reason, unsigned long address,

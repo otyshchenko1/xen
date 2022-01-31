@@ -1,6 +1,17 @@
 #ifndef KVM_UTIL_IOVEC_H_
 #define KVM_UTIL_IOVEC_H_
 
+#include <xen/types.h>
+
+/*
+ * XXX The iovec structure is used for scatter/gather I/O.
+ * Borrowed from sys/uio.h
+ */
+struct iovec {
+	void *iov_base;
+	size_t iov_len;
+};
+
 extern int memcpy_fromiovec(unsigned char *kdata, struct iovec *iov, int len);
 extern int memcpy_fromiovecend(unsigned char *kdata, const struct iovec *iov,
 				size_t offset, int len);
