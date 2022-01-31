@@ -241,6 +241,10 @@ static uint32_t vpci_read_hw(pci_sbdf_t sbdf, unsigned int reg,
 {
     uint32_t data;
 
+    /* Guest domains are not allowed to read real hardware. */
+    if ( !is_hardware_domain(current->domain) )
+        return ~(uint32_t)0;
+
     switch ( size )
     {
     case 4:
@@ -281,9 +285,13 @@ static uint32_t vpci_read_hw(pci_sbdf_t sbdf, unsigned int reg,
     return data;
 }
 
-static void vpci_write_hw(pci_sbdf_t sbdf, unsigned int reg, unsigned int size,
-                          uint32_t data)
+static void vpci_write_hw(pci_sbdf_t sbdf, unsigned int reg,
+                          unsigned int size, uint32_t data)
 {
+    /* Guest domains are not allowed to write real hardware. */
+    if ( !is_hardware_domain(current->domain) )
+        return;
+
     switch ( size )
     {
     case 4:
