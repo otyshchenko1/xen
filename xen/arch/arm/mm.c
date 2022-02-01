@@ -1457,7 +1457,7 @@ int xenmem_add_to_physmap_one(
         }
 
 #ifdef CONFIG_VIRTIO_IOMMU
-        if ( !is_hardware_domain(d) &&
+        if ( (!is_hardware_domain(d) || od->creation_finished) &&
              !viommu_gfn_foreign_access_permitted(d, od, idx, 1) )
         {
             gprintk(XENLOG_ERR, "Deny dom%d access to dom%d GFN 0x%lx\n",
