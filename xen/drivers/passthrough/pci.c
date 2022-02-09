@@ -57,6 +57,11 @@ void pcidevs_lock(void)
     spin_lock_recursive(&_pcidevs_lock);
 }
 
+int pcidevs_trylock(void)
+{
+    return spin_trylock_recursive(&_pcidevs_lock);
+}
+
 void pcidevs_unlock(void)
 {
     spin_unlock_recursive(&_pcidevs_lock);

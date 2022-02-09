@@ -57,6 +57,9 @@ uint32_t cf_check vpci_hw_read32(
  */
 bool __must_check vpci_process_pending(struct vcpu *v);
 
+bool vpci_header_need_write_lock(const struct pci_dev *pdev,
+                                 unsigned int start, unsigned int size);
+
 struct vpci {
     /* List of vPCI handlers for a device. */
     struct list_head handlers;
@@ -82,6 +85,9 @@ struct vpci {
             bool enabled      : 1;
         } bars[PCI_HEADER_NORMAL_NR_BARS + 1];
         /* At most 6 BARS + 1 expansion ROM BAR. */
+
+        /* Offset to the ROM BAR register if any. */
+        unsigned int rom_reg;
 
         /*
          * Store whether the ROM enable bit is set (doesn't imply ROM BAR

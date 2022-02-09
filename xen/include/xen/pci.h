@@ -157,6 +157,7 @@ struct pci_dev {
  */
 
 void pcidevs_lock(void);
+int pcidevs_trylock(void);
 void pcidevs_unlock(void);
 bool_t __must_check pcidevs_locked(void);
 
