@@ -96,20 +96,25 @@ static int __must_check allocate_domain_resources(struct domain *d)
     return rc;
 }
 
-static bool any_pdev_behind_iommu(const struct domain *d,
+static bool any_pdev_behind_iommu(struct domain *d,
                                   const struct pci_dev *exclude,
                                   const struct amd_iommu *iommu)
 {
     const struct pci_dev *pdev;
 
+    read_lock(&d->pci_lock);
     for_each_pdev ( d, pdev )
     {
         if ( pdev == exclude )
             continue;
 
         if ( find_iommu_for_device(pdev->seg, pdev->sbdf.bdf) == iommu )
+        {
+            read_unlock(&d->pci_lock);
             return true;
+        }
     }
+    read_unlock(&d->pci_lock);
 
     return false;
 }
@@ -476,8 +481,13 @@ static int cf_check reassign_device(
 
     if ( devfn == pdev->devfn && pdev->domain != target )
     {
-        list_move(&pdev->domain_list, &target->pdev_list);
-        pdev->domain = target;
+        write_lock(&pdev->domain->pci_lock);
+        list_del(&pdev->domain_list);
+        write_unlock(&pdev->domain->pci_lock);
+
+        write_lock(&target->pci_lock);
+        list_add(&pdev->domain_list, &target->pdev_list);
+        write_unlock(&target->pci_lock);
     }
 
     /*

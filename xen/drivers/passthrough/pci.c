@@ -57,6 +57,11 @@ void pcidevs_lock(void)
     spin_lock_recursive(&_pcidevs_lock);
 }
 
+int pcidevs_trylock(void)
+{
+    return spin_trylock_recursive(&_pcidevs_lock);
+}
+
 void pcidevs_unlock(void)
 {
     spin_unlock_recursive(&_pcidevs_lock);
@@ -454,7 +459,9 @@ static void __init _pci_hide_device(struct pci_dev *pdev)
     if ( pdev->domain )
         return;
     pdev->domain = dom_xen;
+    write_lock(&dom_xen->pci_lock);
     list_add(&pdev->domain_list, &dom_xen->pdev_list);
+    write_unlock(&dom_xen->pci_lock);
 }
 
 int __init pci_hide_device(unsigned int seg, unsigned int bus,
@@ -530,7 +537,7 @@ struct pci_dev *pci_get_pdev(const struct domain *d, pci_sbdf_t sbdf)
 {
     struct pci_dev *pdev;
 
-    ASSERT(d || pcidevs_locked());
+    ASSERT((d && rw_is_locked(&d->pci_lock)) || pcidevs_locked());
 
     /*
      * The hardware domain owns the majority of the devices in the system.
@@ -748,7 +755,9 @@ int pci_add_device(u16 seg, u8 bus, u8 devfn,
     if ( !pdev->domain )
     {
         pdev->domain = hardware_domain;
+        write_lock(&hardware_domain->pci_lock);
         list_add(&pdev->domain_list, &hardware_domain->pdev_list);
+        write_unlock(&hardware_domain->pci_lock);
 
         /*
          * For devices not discovered by Xen during boot, add vPCI handlers
@@ -839,6 +848,7 @@ static int deassign_device(struct domain *d, uint16_t seg, uint8_t bus,
         return -EINVAL;
 
     ASSERT(pcidevs_locked());
+    ASSERT(rw_is_write_locked(&d->pci_lock));
     pdev = pci_get_pdev(d, PCI_SBDF(seg, bus, devfn));
     if ( !pdev )
         return -ENODEV;
@@ -887,26 +897,62 @@ static int deassign_device(struct domain *d, uint16_t seg, uint8_t bus,
 
 int pci_release_devices(struct domain *d)
 {
-    struct pci_dev *pdev, *tmp;
-    u8 bus, devfn;
-    int ret;
+    int combined_ret;
+    LIST_HEAD(failed_pdevs);
 
     pcidevs_lock();
-    ret = arch_pci_clean_pirqs(d);
-    if ( ret )
+    write_lock(&d->pci_lock);
+    combined_ret = arch_pci_clean_pirqs(d);
+    if ( combined_ret )
     {
         pcidevs_unlock();
-        return ret;
+        write_unlock(&d->pci_lock);
+        return combined_ret;
     }
-    list_for_each_entry_safe ( pdev, tmp, &d->pdev_list, domain_list )
+
+    while ( !list_empty(&d->pdev_list) )
     {
-        bus = pdev->bus;
-        devfn = pdev->devfn;
-        ret = deassign_device(d, pdev->seg, bus, devfn) ?: ret;
+        struct pci_dev *pdev = list_first_entry(&d->pdev_list,
+                                                struct pci_dev,
+                                                domain_list);
+        uint16_t seg = pdev->seg;
+        uint8_t bus = pdev->bus;
+        uint8_t devfn = pdev->devfn;
+        int ret;
+
+        write_unlock(&d->pci_lock);
+        ret = deassign_device(d, seg, bus, devfn);
+        write_lock(&d->pci_lock);
+        if ( ret )
+        {
+            bool still_present = false;
+            const struct pci_dev *tmp;
+
+            /*
+             * We need to check if deassign_device() left our pdev in
+             * domain's list. As we dropped the lock, we can't be sure
+             * that list wasn't permutated in some random way, so we
+             * need to traverse the whole list.
+             */
+            for_each_pdev ( d, tmp )
+            {
+                if ( tmp == pdev )
+                {
+                    still_present = true;
+                    break;
+                }
+            }
+            if ( still_present )
+                list_move(&pdev->domain_list, &failed_pdevs);
+            combined_ret = ret;
+        }
     }
+
+    list_splice(&failed_pdevs, &d->pdev_list);
+    write_unlock(&d->pci_lock);
     pcidevs_unlock();
 
-    return ret;
+    return combined_ret;
 }
 
 #define PCI_CLASS_BRIDGE_HOST    0x0600
@@ -1125,7 +1171,9 @@ static int __hwdom_init cf_check _setup_hwdom_pci_devices(
             if ( !pdev->domain )
             {
                 pdev->domain = ctxt->d;
+                write_lock(&ctxt->d->pci_lock);
                 list_add(&pdev->domain_list, &ctxt->d->pdev_list);
+                write_unlock(&ctxt->d->pci_lock);
                 setup_one_hwdom_device(ctxt, pdev);
             }
             else if ( pdev->domain == dom_xen )
@@ -1487,6 +1535,7 @@ static int iommu_get_device_group(
         return group_id;
 
     pcidevs_lock();
+    read_lock(&d->pci_lock);
     for_each_pdev( d, pdev )
     {
         unsigned int b = pdev->bus;
@@ -1501,6 +1550,7 @@ static int iommu_get_device_group(
         sdev_id = iommu_call(ops, get_device_group_id, seg, b, df);
         if ( sdev_id < 0 )
         {
+            read_unlock(&d->pci_lock);
             pcidevs_unlock();
             return sdev_id;
         }
@@ -1511,6 +1561,7 @@ static int iommu_get_device_group(
 
             if ( unlikely(copy_to_guest_offset(buf, i, &bdf, 1)) )
             {
+                read_unlock(&d->pci_lock);
                 pcidevs_unlock();
                 return -EFAULT;
             }
@@ -1518,6 +1569,7 @@ static int iommu_get_device_group(
         }
     }
 
+    read_unlock(&d->pci_lock);
     pcidevs_unlock();
 
     return i;

@@ -180,12 +180,13 @@ static void cleanup_domid_map(domid_t domid, struct vtd_iommu *iommu)
     }
 }
 
-static bool any_pdev_behind_iommu(const struct domain *d,
+static bool any_pdev_behind_iommu(struct domain *d,
                                   const struct pci_dev *exclude,
                                   const struct vtd_iommu *iommu)
 {
     const struct pci_dev *pdev;
 
+    read_lock(&d->pci_lock);
     for_each_pdev ( d, pdev )
     {
         const struct acpi_drhd_unit *drhd;
@@ -195,8 +196,12 @@ static bool any_pdev_behind_iommu(const struct domain *d,
 
         drhd = acpi_find_matched_drhd_unit(pdev);
         if ( drhd && drhd->iommu == iommu )
+        {
+            read_unlock(&d->pci_lock);
             return true;
+        }
     }
+    read_unlock(&d->pci_lock);
 
     return false;
 }
@@ -205,7 +210,7 @@ static bool any_pdev_behind_iommu(const struct domain *d,
  * If no other devices under the same iommu owned by this domain,
  * clear iommu in iommu_bitmap and clear domain_id in domid_bitmap.
  */
-static void check_cleanup_domid_map(const struct domain *d,
+static void check_cleanup_domid_map(struct domain *d,
                                     const struct pci_dev *exclude,
                                     struct vtd_iommu *iommu)
 {
@@ -2806,7 +2811,14 @@ static int cf_check reassign_device_ownership(
 
     if ( devfn == pdev->devfn && pdev->domain != target )
     {
-        list_move(&pdev->domain_list, &target->pdev_list);
+        write_lock(&pdev->domain->pci_lock);
+        list_del(&pdev->domain_list);
+        write_unlock(&pdev->domain->pci_lock);
+
+        write_lock(&target->pci_lock);
+        list_add(&pdev->domain_list, &target->pdev_list);
+        write_unlock(&target->pci_lock);
+
         pdev->domain = target;
     }
 
