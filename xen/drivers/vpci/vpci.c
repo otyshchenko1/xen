@@ -37,10 +37,11 @@ extern vpci_register_init_t *const __end_vpci_array[];
 
 void vpci_remove_device(struct pci_dev *pdev)
 {
+    ASSERT(pcidevs_write_locked());
+
     if ( !has_vpci(pdev->domain) )
         return;
 
-    spin_lock(&pdev->vpci->lock);
     while ( !list_empty(&pdev->vpci->handlers) )
     {
         struct vpci_register *r = list_first_entry(&pdev->vpci->handlers,
@@ -50,7 +51,6 @@ void vpci_remove_device(struct pci_dev *pdev)
         list_del(&r->node);
         xfree(r);
     }
-    spin_unlock(&pdev->vpci->lock);
     if ( pdev->vpci->msix && pdev->vpci->msix->pba )
         iounmap(pdev->vpci->msix->pba);
     xfree(pdev->vpci->msix);
@@ -63,6 +63,8 @@ int vpci_add_handlers(struct pci_dev *pdev)
 {
     unsigned int i;
     int rc = 0;
+
+    ASSERT(pcidevs_write_locked());
 
     if ( !has_vpci(pdev->domain) )
         return 0;
@@ -138,6 +140,8 @@ int vpci_add_register(struct vpci *vpci, vpci_read_t *read_handler,
     struct list_head *prev;
     struct vpci_register *r;
 
+    ASSERT(pcidevs_write_locked());
+
     /* Some sanity checks. */
     if ( (size != 1 && size != 2 && size != 4) ||
          offset >= PCI_CFG_SPACE_EXP_SIZE || (offset & (size - 1)) ||
@@ -185,7 +189,8 @@ int vpci_remove_register(struct vpci *vpci, unsigned int offset,
     const struct vpci_register r = { .offset = offset, .size = size };
     struct vpci_register *rm;
 
-    spin_lock(&vpci->lock);
+    ASSERT(pcidevs_write_locked());
+
     list_for_each_entry ( rm, &vpci->handlers, node )
     {
         int cmp = vpci_register_cmp(&r, rm);
@@ -197,14 +202,12 @@ int vpci_remove_register(struct vpci *vpci, unsigned int offset,
         if ( !cmp && rm->offset == offset && rm->size == size )
         {
             list_del(&rm->node);
-            spin_unlock(&vpci->lock);
             xfree(rm);
             return 0;
         }
         if ( cmp <= 0 )
             break;
     }
-    spin_unlock(&vpci->lock);
 
     return -ENOENT;
 }
