@@ -281,7 +281,11 @@ static int modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
     /*
      * Check for overlaps with other BARs. Note that only BARs that are
      * currently mapped (enabled) are checked for overlaps.
+     * We are holding pcidevs_read_lock here, but we need to access
+     * different devices at a time. So, upgrade our current read lock to normal
+     * pcidevs_lock.
      */
+    pcidevs_lock();
     for_each_pdev ( pdev->domain, tmp )
     {
         if ( tmp == pdev )
@@ -321,10 +325,12 @@ static int modify_bars(const struct pci_dev *pdev, uint16_t cmd, bool rom_only)
                 printk(XENLOG_G_WARNING "Failed to remove [%lx, %lx]: %d\n",
                        start, end, rc);
                 rangeset_destroy(mem);
+                pcidevs_unlock();
                 return rc;
             }
         }
     }
+    pcidevs_unlock();
 
     ASSERT(dev);
 
