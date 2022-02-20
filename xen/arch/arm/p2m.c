@@ -1330,6 +1330,7 @@ static inline int p2m_remove_mapping(struct domain *d,
              (!mfn_valid(mfn) || !mfn_eq(mfn_add(mfn, i), mfn_return)) )
         {
             rc = -EILSEQ;
+            ASSERT_UNREACHABLE();
             goto out;
         }
 
