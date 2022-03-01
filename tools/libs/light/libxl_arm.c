@@ -942,7 +942,8 @@ enum virtio_mmio_node {
 
 static int make_virtio_mmio_node(libxl__gc *gc, void *fdt,
                                  enum virtio_mmio_node node, uint32_t phandle,
-                                 uint64_t base, uint32_t irq)
+                                 uint64_t base, uint32_t irq,
+                                 uint32_t backend_domid)
 {
     int res;
     gic_interrupt intr;
@@ -979,6 +980,12 @@ static int make_virtio_mmio_node(libxl__gc *gc, void *fdt,
         iommus_prop[0] = cpu_to_fdt32(phandle);
         iommus_prop[1] = cpu_to_fdt32(GUEST_VIRTIO_MMIO_IOMMU_ID);
         res = fdt_property(fdt, "iommus", iommus_prop, sizeof(iommus_prop));
+        if (res) return res;
+    } else {
+        uint32_t domid[1];
+
+        domid[0] = cpu_to_fdt32(backend_domid);
+        res = fdt_property(fdt, "xen,dev_domid", domid, sizeof(domid));
         if (res) return res;
     }
 
@@ -1314,7 +1321,7 @@ next_resize:
             FDT( make_virtio_mmio_node(gc, fdt, VIRTIO_IOMMU,
                                        viommu_phandle,
                                        info->arch_arm.viommu_base,
-                                       info->arch_arm.viommu_irq) );
+                                       info->arch_arm.viommu_irq, 0) );
         }
 
         for (i = 0; i < d_config->num_disks; i++) {
@@ -1325,7 +1332,8 @@ next_resize:
                                            ? VIRTIO_DEV_WITH_IOMMU
                                            : VIRTIO_DEV_WITHOUT_IOMMU,
                                            viommu_phandle,
-                                           disk->base, disk->irq) );
+                                           disk->base, disk->irq,
+                                           disk->backend_domid) );
         }
 
         if (pfdt)
