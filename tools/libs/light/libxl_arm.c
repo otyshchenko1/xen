@@ -909,7 +909,8 @@ static int make_vpci_node(libxl__gc *gc, void *fdt,
 
 
 static int make_virtio_mmio_node(libxl__gc *gc, void *fdt,
-                                 uint64_t base, uint32_t irq)
+                                 uint64_t base, uint32_t irq,
+                                 uint32_t backend_domid)
 {
     int res;
     gic_interrupt intr;
@@ -933,6 +934,14 @@ static int make_virtio_mmio_node(libxl__gc *gc, void *fdt,
 
     res = fdt_property(fdt, "dma-coherent", NULL, 0);
     if (res) return res;
+
+    if (backend_domid != LIBXL_TOOLSTACK_DOMID) {
+        uint32_t domid[1];
+
+        domid[0] = cpu_to_fdt32(backend_domid);
+        res = fdt_property(fdt, "xen,dev-domid", domid, sizeof(domid));
+        if (res) return res;
+    }
 
     res = fdt_end_node(fdt);
     if (res) return res;
@@ -1264,7 +1273,8 @@ next_resize:
             libxl_device_disk *disk = &d_config->disks[i];
 
             if (disk->virtio)
-                FDT( make_virtio_mmio_node(gc, fdt, disk->base, disk->irq) );
+                FDT( make_virtio_mmio_node(gc, fdt, disk->base, disk->irq,
+                                           disk->backend_domid) );
         }
 
         if (pfdt)
