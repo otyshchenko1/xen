@@ -99,6 +99,7 @@ DiskBackendUnknown DiskBackend = 0
 DiskBackendPhy DiskBackend = 1
 DiskBackendTap DiskBackend = 2
 DiskBackendQdisk DiskBackend = 3
+DiskBackendVirtio DiskBackend = 4
 )
 
 type NicType int
@@ -643,6 +644,9 @@ Readwrite int
 IsCdrom int
 DirectIoSafe bool
 DiscardEnable Defbool
+Virtio bool
+Irq uint32
+Base uint64
 ColoEnable Defbool
 ColoRestoreEnable Defbool
 ColoHost string
