@@ -232,7 +232,7 @@ Specifies the backend implementation to use
 
 =item Supported values
 
-phy, qdisk
+phy, qdisk, other
 
 =item Mandatory
 
@@ -244,11 +244,13 @@ Automatically determine which backend to use.
 
 =back
 
-This does not affect the guest's view of the device.  It controls
-which software implementation of the Xen backend driver is used.
+It controls which software implementation of the backend driver is used.
+Depending on the "protocol" option this may affect the guest's view
+of the device.
 
 Not all backend drivers support all combinations of other options.
-For example, "phy" does not support formats other than "raw".
+For example, "phy" and "other" do not support formats other than "raw" and
+"other" does not support protocols other than "virtio-mmio".
 Normally this option should not be specified, in which case libxl will
 automatically determine the most suitable backend.
 
@@ -344,8 +346,35 @@ can be used to disable "hole punching" for file based backends which
 were intentionally created non-sparse to avoid fragmentation of the
 file.
 
+=item B<protocol>=I<PROTOCOL>
+
+=over 4
+
+=item Description
+
+Specifies the communication protocol to use for the chosen "backendtype" option
+
+=item Supported values
+
+xen, virtio-mmio
+
+=item Mandatory
+
+No
+
+=item Default value
+
+xen
+
 =back
 
+Besides forcing toolstack to use specific backend implementation, this also
+affects the guest's view of the device. For example, "virtio-mmio" requires
+Virtio frontend driver (virtio-blk) to be used. Please note, the virtual
+device (vdev) is not passed to the guest in that case, but it still must be
+specified for the internal purposes.
+
+=back
 
 =head1 COLO Parameters
 

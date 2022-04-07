@@ -99,6 +99,14 @@ DiskBackendUnknown DiskBackend = 0
 DiskBackendPhy DiskBackend = 1
 DiskBackendTap DiskBackend = 2
 DiskBackendQdisk DiskBackend = 3
+DiskBackendOther DiskBackend = 4
+)
+
+type DiskProtocol int
+const(
+DiskProtocolUnknown DiskProtocol = 0
+DiskProtocolXen DiskProtocol = 1
+DiskProtocolVirtioMmio DiskProtocol = 2
 )
 
 type NicType int
@@ -643,6 +651,9 @@ Readwrite int
 IsCdrom int
 DirectIoSafe bool
 DiscardEnable Defbool
+Protocol DiskProtocol
+Irq uint32
+Base uint64
 ColoEnable Defbool
 ColoRestoreEnable Defbool
 ColoHost string

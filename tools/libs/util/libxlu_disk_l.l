@@ -122,7 +122,15 @@ static void setbackendtype(DiskParseContext *dpc, const char *str) {
     if (     !strcmp(str,"phy"))   DSET(dpc,backend,BACKEND,str,PHY);
     else if (!strcmp(str,"tap"))   DSET(dpc,backend,BACKEND,str,TAP);
     else if (!strcmp(str,"qdisk")) DSET(dpc,backend,BACKEND,str,QDISK);
+    else if (!strcmp(str,"other")) DSET(dpc,backend,BACKEND,str,OTHER);
     else xlu__disk_err(dpc,str,"unknown value for backendtype");
+}
+
+/* Sets ->protocol from the string.  IDL should provide something for this. */
+static void setprotocol(DiskParseContext *dpc, const char *str) {
+    if      (!strcmp(str,"xen"))         DSET(dpc,protocol,PROTOCOL,str,XEN);
+    else if (!strcmp(str,"virtio-mmio")) DSET(dpc,protocol,PROTOCOL,str,VIRTIO_MMIO);
+    else xlu__disk_err(dpc,str,"unknown value for protocol");
 }
 
 /* Sets ->colo-port from the string.  COLO need this. */
@@ -192,6 +200,7 @@ devtype=[^,]*,?	{ xlu__disk_err(DPC,yytext,"unknown value for type"); }
 access=[^,]*,?	{ STRIP(','); setaccess(DPC, FROMEQUALS); }
 backend=[^,]*,? { STRIP(','); SAVESTRING("backend", backend_domname, FROMEQUALS); }
 backendtype=[^,]*,? { STRIP(','); setbackendtype(DPC,FROMEQUALS); }
+protocol=[^,]*,? { STRIP(','); setprotocol(DPC,FROMEQUALS); }
 
 vdev=[^,]*,?	{ STRIP(','); SAVESTRING("vdev", vdev, FROMEQUALS); }
 script=[^,]*,?	{ STRIP(','); SAVESTRING("script", script, FROMEQUALS); }
