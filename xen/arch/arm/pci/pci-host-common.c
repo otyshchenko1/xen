@@ -25,6 +25,16 @@
 #include <asm/setup.h>
 
 /*
+ * struct to hold pci device bar.
+ */
+struct pdev_bar
+{
+    mfn_t start;
+    mfn_t end;
+    bool is_valid;
+};
+
+/*
  * List for all the pci host bridges.
  */
 
@@ -363,6 +373,39 @@ int __init pci_host_bridge_mappings(struct domain *d)
     return 0;
 }
 
+static int is_bar_valid(const struct dt_device_node *dev,
+                        uint64_t addr, uint64_t len, void *data)
+{
+    struct pdev_bar *bar_data = data;
+    unsigned long s = mfn_x(bar_data->start);
+    unsigned long e = mfn_x(bar_data->end);
+
+    if ( (s <= e) && (s >= PFN_DOWN(addr)) && (e <= PFN_UP(addr + len - 1)) )
+        bar_data->is_valid =  true;
+
+    return 0;
+}
+
+bool pci_check_bar(const struct pci_dev *pdev, mfn_t start, mfn_t end)
+{
+    int ret;
+    const struct dt_device_node *dt_node;
+    struct pdev_bar bar_data =  {
+        .start = start,
+        .end = end,
+        .is_valid = false
+    };
+
+    dt_node = pci_find_host_bridge_node(pdev);
+    if ( !dt_node )
+        return false;
+
+    ret = dt_for_each_range(dt_node, &is_bar_valid, &bar_data);
+    if ( ret < 0 )
+        return false;
+
+    return bar_data.is_valid;
+}
 /*
  * Local variables:
  * mode: C
