@@ -35,6 +35,7 @@ static enum io_state handle_read(const struct mmio_handler *handler,
 {
     const struct hsr_dabt dabt = info->dabt;
     struct cpu_user_regs *regs = guest_cpu_user_regs();
+    int ret;
     /*
      * Initialize to zero to avoid leaking data if there is an
      * implementation error in the emulation (such as not correctly
@@ -42,8 +43,9 @@ static enum io_state handle_read(const struct mmio_handler *handler,
      */
     register_t r = 0;
 
-    if ( !handler->ops->read(v, info, &r, handler->priv) )
-        return IO_ABORT;
+    ret = handler->ops->read(v, info, &r, handler->priv);
+    if ( ret != IO_HANDLED )
+        return ret != IO_RETRY ? IO_ABORT : ret;
 
     r = sign_extend(dabt, r);
 
@@ -62,7 +64,7 @@ static enum io_state handle_write(const struct mmio_handler *handler,
 
     ret = handler->ops->write(v, info, get_user_reg(regs, dabt.reg),
                               handler->priv);
-    return ret ? IO_HANDLED : IO_ABORT;
+    return ret != IO_HANDLED && ret != IO_RETRY ? IO_ABORT : ret;
 }
 
 /* This function assumes that mmio regions are not overlapped */
