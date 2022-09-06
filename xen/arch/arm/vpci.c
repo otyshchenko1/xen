@@ -14,6 +14,7 @@
 #include <xen/sched.h>
 #include <xen/vpci.h>
 
+#include <asm/ioreq.h>
 #include <asm/mmio.h>
 
 static pci_sbdf_t vpci_sbdf_from_gpa(const struct pci_host_bridge *bridge,
@@ -45,14 +46,28 @@ static int vpci_mmio_read(struct vcpu *v, mmio_info_t *info,
 
     sbdf = vpci_sbdf_from_gpa(bridge, info->gpa);
 
+    /*printk("<<< %s[%d] sbdf %pp gpa 0x%lx\n", __func__, __LINE__, &sbdf, info->gpa);*/
+
     /*
      * For the passed through devices we need to map their virtual SBDF
      * to the physical PCI device being passed through.
      */
     if ( !bridge && !vpci_translate_virtual_device(v->domain, &sbdf) )
     {
-        *r = ~0ul;
-        return 1;
+        int rc;
+
+        rc = try_fwd_ioserv(guest_cpu_user_regs(), v, info);
+        if ( rc == IO_HANDLED )
+        {
+            *r = v->io.req.data;
+            v->io.req.state = STATE_IOREQ_NONE;
+            return IO_HANDLED;
+        }
+        else
+        {
+            *r = ~0ul;
+            return rc == IO_UNHANDLED ? IO_HANDLED : rc;
+        }
     }
 
     if ( vpci_ecam_read(sbdf, ECAM_REG_OFFSET(info->gpa),
@@ -77,12 +92,27 @@ static int vpci_mmio_write(struct vcpu *v, mmio_info_t *info,
 
     sbdf = vpci_sbdf_from_gpa(bridge, info->gpa);
 
+    /*printk(">>> %s[%d] sbdf %pp gpa 0x%lx\n", __func__, __LINE__, &sbdf, info->gpa);*/
+
     /*
      * For the passed through devices we need to map their virtual SBDF
      * to the physical PCI device being passed through.
      */
     if ( !bridge && !vpci_translate_virtual_device(v->domain, &sbdf) )
-        return 1;
+    {
+        int rc;
+
+        rc = try_fwd_ioserv(guest_cpu_user_regs(), v, info);
+        if ( rc == IO_HANDLED )
+        {
+            v->io.req.state = STATE_IOREQ_NONE;
+            return IO_HANDLED;
+        }
+        else
+        {
+            return rc == IO_UNHANDLED ? IO_HANDLED : rc;
+        }
+    }
 
     return vpci_ecam_write(sbdf, ECAM_REG_OFFSET(info->gpa),
                            1U << info->dabt.size, r);

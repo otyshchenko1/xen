@@ -190,9 +190,26 @@ bool arch_ioreq_server_get_type_addr(const struct domain *d,
     if ( p->type != IOREQ_TYPE_COPY && p->type != IOREQ_TYPE_PIO )
         return false;
 
-    *type = (p->type == IOREQ_TYPE_PIO) ?
-             XEN_DMOP_IO_RANGE_PORT : XEN_DMOP_IO_RANGE_MEMORY;
-    *addr = p->addr;
+    if ( p->type == IOREQ_TYPE_COPY &&
+        (p->addr >= GUEST_VPCI_ECAM_BASE && p->addr < GUEST_VPCI_ECAM_BASE + GUEST_VPCI_ECAM_SIZE) )
+    {
+        pci_sbdf_t sbdf;
+        sbdf.sbdf = VPCI_ECAM_BDF(p->addr - GUEST_VPCI_ECAM_BASE);
+
+        /* PCI config data cycle */
+        *type = XEN_DMOP_IO_RANGE_PCI;
+        *addr = ((uint64_t)sbdf.sbdf << 32) | ECAM_REG_OFFSET(p->addr);
+
+        printk("*** %s[%d] PCI sbdf %pp addr 0x%lx\n", __func__, __LINE__, &sbdf, *addr);
+    }
+    else
+    {
+        *type = (p->type == IOREQ_TYPE_PIO) ?
+                 XEN_DMOP_IO_RANGE_PORT : XEN_DMOP_IO_RANGE_MEMORY;
+        *addr = p->addr;
+
+        printk("*** %s[%d] MMIO addr 0x%lx\n", __func__, __LINE__, *addr);
+    }
 
     return true;
 }

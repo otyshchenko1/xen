@@ -882,6 +882,8 @@ static int ioreq_server_map_io_range(struct domain *d, ioservid_t id,
     if ( rangeset_overlaps_range(r, start, end) )
         goto out;
 
+    printk(">>> %s[%d] type %u : start 0x%lx end 0x%lx\n", __func__, __LINE__, type, start, end);
+
     rc = rangeset_add_range(r, start, end);
 
  out:
