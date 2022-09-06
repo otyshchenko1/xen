@@ -3796,8 +3796,8 @@ int libxl__need_xenpv_qemu(libxl__gc *gc, libxl_domain_config *d_config)
      * needed.
      */
     if (d_config->num_vfbs > 0 || d_config->num_p9s > 0 ||
-        libxl_defbool_val(d_config->b_info.tpm) ||
-        libxl_defbool_val(d_config->b_info.virtio_qemu)) {
+        libxl_defbool_val(d_config->b_info.tpm)/* ||
+        d_config->b_info.virtio_qemu_domid == LIBXL_TOOLSTACK_DOMID*/) {
         ret = 1;
         goto out;
     }
