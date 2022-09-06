@@ -2,9 +2,11 @@
 /*
  * xen/arch/arm/vpci.c
  */
+#include <xen/ioreq.h>
 #include <xen/sched.h>
 #include <xen/vpci.h>
 
+#include <asm/ioreq.h>
 #include <asm/mmio.h>
 
 static pci_sbdf_t vpci_sbdf_from_gpa(const struct pci_host_bridge *bridge,
@@ -22,6 +24,24 @@ static pci_sbdf_t vpci_sbdf_from_gpa(const struct pci_host_bridge *bridge,
         sbdf.sbdf = VPCI_ECAM_BDF(gpa - GUEST_VPCI_ECAM_BASE);
 
     return sbdf;
+}
+
+bool vpci_ioreq_server_get_addr(const struct domain *d,
+                                paddr_t gpa, uint64_t *addr)
+{
+    pci_sbdf_t sbdf;
+
+    if ( !has_vpci(d) )
+        return false;
+
+    if ( gpa < GUEST_VPCI_ECAM_BASE ||
+         gpa >= GUEST_VPCI_ECAM_BASE + GUEST_VPCI_ECAM_SIZE )
+        return false;
+
+    sbdf.sbdf = VPCI_ECAM_BDF(gpa - GUEST_VPCI_ECAM_BASE);
+    *addr = ((uint64_t)sbdf.sbdf << 32) | ECAM_REG_OFFSET(gpa);
+
+    return true;
 }
 
 static int vpci_mmio_read(struct vcpu *v, mmio_info_t *info,
@@ -42,8 +62,25 @@ static int vpci_mmio_read(struct vcpu *v, mmio_info_t *info,
      */
     if ( !bridge && !vpci_translate_virtual_device(v->domain, &sbdf) )
     {
+        int rc = IO_HANDLED;
+
+#if defined(CONFIG_HAS_VPCI_GUEST_SUPPORT) && defined(CONFIG_IOREQ_SERVER)
+        if ( domain_has_ioreq_server(v->domain) )
+        {
+            rc = try_fwd_ioserv(guest_cpu_user_regs(), v, info);
+            if ( rc == IO_HANDLED )
+            {
+                *r = v->io.req.data;
+                v->io.req.state = STATE_IOREQ_NONE;
+                return IO_HANDLED;
+            }
+            else if ( rc == IO_UNHANDLED )
+                rc = IO_HANDLED;
+        }
+#endif
+
         *r = ~0ul;
-        return 1;
+        return rc;
     }
 
     if ( vpci_ecam_read(sbdf, ECAM_REG_OFFSET(info->gpa),
@@ -73,7 +110,25 @@ static int vpci_mmio_write(struct vcpu *v, mmio_info_t *info,
      * to the physical PCI device being passed through.
      */
     if ( !bridge && !vpci_translate_virtual_device(v->domain, &sbdf) )
-        return 1;
+    {
+        int rc = IO_HANDLED;
+
+#if defined(CONFIG_HAS_VPCI_GUEST_SUPPORT) && defined(CONFIG_IOREQ_SERVER)
+        if ( domain_has_ioreq_server(v->domain) )
+        {
+            rc = try_fwd_ioserv(guest_cpu_user_regs(), v, info);
+            if ( rc == IO_HANDLED )
+            {
+                v->io.req.state = STATE_IOREQ_NONE;
+                return IO_HANDLED;
+            }
+            else if ( rc == IO_UNHANDLED )
+                rc = IO_HANDLED;
+        }
+#endif
+
+        return rc;
+    }
 
     return vpci_ecam_write(sbdf, ECAM_REG_OFFSET(info->gpa),
                            1U << info->dabt.size, r);
