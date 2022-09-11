@@ -3006,6 +3006,10 @@ skip_usbdev:
 
     xlu_cfg_get_defbool(config, "dm_restrict", &b_info->dm_restrict, 0);
     xlu_cfg_get_defbool(config, "tpm", &b_info->tpm, 0);
+    if (!xlu_cfg_get_long(config, "virtio_qemu_domid", &l, 0))
+        b_info->virtio_qemu_domid = l;
+    else
+        b_info->virtio_qemu_domid = INVALID_DOMID;
 
     if (c_info->type == LIBXL_DOMAIN_TYPE_HVM) {
         if (!xlu_cfg_get_string (config, "vga", &buf, 0)) {

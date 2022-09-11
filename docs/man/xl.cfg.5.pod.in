@@ -767,6 +767,12 @@ value is optional if this is a guest domain.
 B<(ARM only)> Specifies whether an B<emulated> TPM is enabled for the
 VM.
 
+=item B<virtio_qemu_domid=domain-id>
+
+B<(ARM only)> Create virtio device nodes and insert them into guest
+device-tree. The domain-id specifies the domain where the Qemu instance
+which corresponding virtio devices is running.
+
 =item B<p9=[ "9PFS_SPEC_STRING", "9PFS_SPEC_STRING", ...]>
 
 Creates a Xen 9pfs connection to share a filesystem from the backend to the
