@@ -128,6 +128,9 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
             return rc;
     }
 
+    if (d_config->b_info.virtio_qemu_domid != INVALID_DOMID)
+        virtio_mmio_irq = GUEST_VIRTIO_MMIO_SPI_LAST + 1;
+
     /*
      * Every virtio-mmio device uses one emulated SPI. If Virtio devices are
      * present, make sure that we allocate enough SPIs for them.
@@ -1465,6 +1468,17 @@ next_resize:
                                               virtio->irq, virtio->type,
                                               virtio->backend_domid,
                                               libxl_defbool_val(virtio->grant_usage)) );
+        }
+
+        if (info->virtio_qemu_domid != INVALID_DOMID) {
+            if (info->virtio_qemu_domid != LIBXL_TOOLSTACK_DOMID)
+                iommu_needed = true;
+
+            for (i = 0; i < GUEST_VIRTIO_MMIO_SPI_LAST - GUEST_VIRTIO_MMIO_SPI_FIRST; i++) {
+                FDT( make_virtio_mmio_node(gc, fdt, GUEST_VIRTIO_MMIO_BASE + i * VIRTIO_MMIO_DEV_SIZE,
+                     GUEST_VIRTIO_MMIO_SPI_FIRST + i, info->virtio_qemu_domid,
+                     info->virtio_qemu_domid != LIBXL_TOOLSTACK_DOMID) );
+            }
         }
 
         if (libxl_defbool_val(d_config->b_info.tpm))
