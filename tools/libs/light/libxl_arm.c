@@ -113,6 +113,9 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
         }
     }
 
+    if (libxl_defbool_val(d_config->b_info.virtio_qemu))
+        virtio_mmio_irq = GUEST_VIRTIO_MMIO_SPI_LAST + 1;
+
     /*
      * Every virtio-mmio device uses one emulated SPI. If Virtio devices are
      * present, make sure that we allocate enough SPIs for them.
@@ -1348,6 +1351,13 @@ next_resize:
             }
         }
 
+        if (libxl_defbool_val(d_config->b_info.virtio_qemu)) {
+            for (i = 0; i < GUEST_VIRTIO_MMIO_SPI_LAST - GUEST_VIRTIO_MMIO_SPI_FIRST; i++) {
+                FDT( make_virtio_mmio_node(gc, fdt, GUEST_VIRTIO_MMIO_BASE + i * VIRTIO_MMIO_DEV_SIZE,
+                     GUEST_VIRTIO_MMIO_SPI_FIRST + i, LIBXL_TOOLSTACK_DOMID) );
+            }
+        }
+
         if (libxl_defbool_val(d_config->b_info.tpm))
             FDT( make_tpm_node(gc, fdt, ainfo, dom) );
 
@@ -1655,6 +1665,7 @@ int libxl__arch_domain_build_info_setdefault(libxl__gc *gc,
     /* ACPI is disabled by default */
     libxl_defbool_setdefault(&b_info->acpi, false);
     libxl_defbool_setdefault(&b_info->tpm, false);
+    libxl_defbool_setdefault(&b_info->virtio_qemu, false);
 
     if (b_info->type != LIBXL_DOMAIN_TYPE_PV)
         return 0;
