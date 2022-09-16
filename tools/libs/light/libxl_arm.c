@@ -127,7 +127,7 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
     }
 
     if (d_config->b_info.virtio_qemu_domid != INVALID_DOMID)
-        virtio_mmio_irq = GUEST_VIRTIO_MMIO_SPI_LAST + 1;
+        virtio_mmio_irq = GUEST_VIRTIO_PCI_SPI_LAST + 1;
 
     /*
      * Every virtio-mmio device uses one emulated SPI. If Virtio devices are
@@ -887,9 +887,58 @@ static int make_vpl011_uart_node(libxl__gc *gc, void *fdt,
     return 0;
 }
 
+#define PCI_NUM_IRQ   4
+#define PCI_IRQ_MAP_STRIDE   8
+
+static int create_vpci_irq_map(libxl__gc *gc, void *fdt)
+{
+    uint32_t full_irq_map[PCI_NUM_IRQ * PCI_NUM_IRQ * PCI_IRQ_MAP_STRIDE] = {0};
+    uint32_t *irq_map = full_irq_map;
+    unsigned int slot, pin;
+    int res;
+
+    res = fdt_property_cell(fdt, "#interrupt-cells", 1);
+    if (res) return res;
+
+    for (slot = 0; slot < PCI_NUM_IRQ; slot++) {
+        for (pin = 0; pin < PCI_NUM_IRQ; pin++) {
+            uint32_t irq = GUEST_VIRTIO_PCI_SPI_FIRST +
+                           ((pin + slot) % PCI_NUM_IRQ);
+            unsigned int i = 0;
+
+            /* PCI address (3 cells) */
+            irq_map[i++] = cpu_to_fdt32(PCI_DEVFN(slot, 0) << 8);
+            irq_map[i++] = cpu_to_fdt32(0);
+            irq_map[i++] = cpu_to_fdt32(0);
+
+            /* PCI interrupt (1 cell) */
+            irq_map[i++] = cpu_to_fdt32(pin + 1);
+
+            /* GIC phandle (1 cell) */
+            irq_map[i++] = cpu_to_fdt32(GUEST_PHANDLE_GIC);
+
+            /* GIC interrupt (3 cells) */
+            irq_map[i++] = cpu_to_fdt32(0); /* SPI */
+            irq_map[i++] = cpu_to_fdt32(irq - 32);
+            irq_map[i++] = cpu_to_fdt32(DT_IRQ_TYPE_LEVEL_HIGH);
+
+            irq_map += PCI_IRQ_MAP_STRIDE;
+        }
+    }
+
+    res = fdt_property(fdt, "interrupt-map", full_irq_map, sizeof(full_irq_map));
+    if (res) return res;
+
+    res = fdt_property_values(gc, fdt, "interrupt-map-mask", 4,
+                              PCI_DEVFN(3, 0) << 8, 0, 0, 0x7);
+    if (res) return res;
+
+    return 0;
+}
+
 static int make_vpci_node(libxl__gc *gc, void *fdt,
                           const struct arch_info *ainfo,
-                          struct xc_dom_image *dom)
+                          struct xc_dom_image *dom, uint32_t backend_domid)
 {
     int res;
     const uint64_t vpci_ecam_base = GUEST_VPCI_ECAM_BASE;
@@ -927,6 +976,28 @@ static int make_vpci_node(libxl__gc *gc, void *fdt,
         GUEST_VPCI_ADDR_TYPE_PREFETCH_MEM, GUEST_VPCI_PREFETCH_MEM_ADDR,
         GUEST_VPCI_PREFETCH_MEM_SIZE);
     if (res) return res;
+
+    /*
+     * TODO: The actions below are only needed for virtio-pci. Check whether
+     * they won't break the PCI passthrough as we might have both features
+     * enabled for the same guest.
+     */
+    res = fdt_property(fdt, "dma-coherent", NULL, 0);
+    if (res) return res;
+
+    /* Legacy PCI interrupts (#INTA - #INTD) */
+    res = create_vpci_irq_map(gc, fdt);
+    if (res) return res;
+
+    if (backend_domid != LIBXL_TOOLSTACK_DOMID && backend_domid != INVALID_DOMID) {
+        uint32_t iommus_prop[2];
+
+        iommus_prop[0] = cpu_to_fdt32(GUEST_PHANDLE_IOMMU);
+        iommus_prop[1] = cpu_to_fdt32(backend_domid);
+
+        res = fdt_property(fdt, "iommus", iommus_prop, sizeof(iommus_prop));
+        if (res) return res;
+    }
 
     res = fdt_end_node(fdt);
     if (res) return res;
@@ -1425,8 +1496,12 @@ next_resize:
         if (info->tee == LIBXL_TEE_TYPE_OPTEE)
             FDT( make_optee_node(gc, fdt) );
 
-        if (d_config->num_pcidevs)
-            FDT( make_vpci_node(gc, fdt, ainfo, dom) );
+        if (d_config->num_pcidevs || info->virtio_qemu_domid != INVALID_DOMID) {
+            if (info->virtio_qemu_domid != LIBXL_TOOLSTACK_DOMID)
+                iommu_needed = true;
+
+            FDT( make_vpci_node(gc, fdt, ainfo, dom, info->virtio_qemu_domid) );
+        }
 
         for (i = 0; i < d_config->num_disks; i++) {
             libxl_device_disk *disk = &d_config->disks[i];
