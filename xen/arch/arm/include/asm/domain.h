@@ -12,9 +12,39 @@
 #include <asm/vpl011.h>
 #include <public/hvm/params.h>
 
+struct hvm_hw_pci_irqs {
+    /*
+     * Virtual interrupt wires for a single PCI bus.
+     * Indexed by: device*4 + INTx#.
+     */
+    union {
+        unsigned long i[16 / sizeof (unsigned long)]; /* DECLARE_BITMAP(i, 32*4); */
+        uint64_t pad[2];
+    };
+};
+
+struct hvm_irq {
+    /*
+     * Virtual interrupt wires for a single PCI bus.
+     * Indexed by: device*4 + INTx#.
+     */
+    struct hvm_hw_pci_irqs pci_intx;
+
+    /* Number of INTx wires asserting each PCI-ISA link. */
+    u8 pci_link_assert_count[4];
+};
+
+#define hvm_pci_intx_link(dev, intx) \
+    (((dev) + (intx)) & 3)
+#define hvm_domain_irq(d) ((d)->arch.hvm.irq)
+
 struct hvm_domain
 {
     uint64_t              params[HVM_NR_PARAMS];
+
+    /* Lock protects access to irq */
+    spinlock_t irq_lock;
+    struct hvm_irq *irq;
 };
 
 #ifdef CONFIG_ARM_64
