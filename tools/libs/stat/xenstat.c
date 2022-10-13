@@ -636,7 +636,7 @@ xenstat_vbd *xenstat_save_vbd(xenstat_domain *domain, xenstat_vbd *vbd)
         domain->vbds = realloc(domain->vbds,
                                domain->num_vbds *
                                sizeof(xenstat_vbd));
-
+//
         if (domain->vbds == NULL) {
                 domain->num_vbds = 0;
                 free(vbds);

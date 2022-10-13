@@ -84,8 +84,10 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
 {
     uint32_t nr_spis = 0;
     unsigned int i;
-    uint32_t vuart_irq, virtio_irq = 0;
-    bool vuart_enabled = false, virtio_enabled = false;
+    unsigned int num_virtio_pcidevs = 0;
+    uint32_t vuart_irq, virtio_mmio_irq_last;
+    bool vuart_enabled = false, virtio_mmio_enabled = false,
+        virtio_pci_enabled = false;
     uint64_t virtio_mmio_base = GUEST_VIRTIO_MMIO_BASE;
     uint32_t virtio_mmio_irq = GUEST_VIRTIO_MMIO_SPI_FIRST;
     int rc;
@@ -113,8 +115,24 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
         }
     }
 
+    for (i = 0; i < d_config->num_virtio_devices; i++) {
+    	libxl_device_virtio *vdev = &d_config->virtio_devices[i];
+
+		if (vdev->transport == LIBXL_VIRTIO_TRANSPORT_MMIO) {
+			rc = alloc_virtio_mmio_params(gc, &vdev->u.mmio.base, &vdev->u.mmio.irq,
+										  &virtio_mmio_base,
+										  &virtio_mmio_irq);
+
+			if (rc)
+				return rc;
+		} else
+			num_virtio_pcidevs ++;
+	}
+
+#if 0
     if (d_config->b_info.virtio_qemu_domid != INVALID_DOMID)
         virtio_mmio_irq = GUEST_VIRTIO_PCI_SPI_LAST + 1;
+#endif
 
     /*
      * Every virtio-mmio device uses one emulated SPI. If Virtio devices are
@@ -122,14 +140,19 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
      * The resulting "nr_spis" needs to cover the highest possible SPI.
      */
     if (virtio_mmio_irq != GUEST_VIRTIO_MMIO_SPI_FIRST) {
-        virtio_enabled = true;
+        virtio_mmio_enabled = true;
 
         /*
          * Assumes that "virtio_mmio_irq" is the highest allocated irq, which is
          * updated from alloc_virtio_mmio_irq() currently.
          */
-        virtio_irq = virtio_mmio_irq - 1;
-        nr_spis = max(nr_spis, virtio_irq - 32 + 1);
+        virtio_mmio_irq_last = virtio_mmio_irq - 1;
+        nr_spis = max(nr_spis, virtio_mmio_irq_last - 32 + 1);
+    }
+
+    if (num_virtio_pcidevs) {
+        virtio_pci_enabled = true;
+        nr_spis = max(nr_spis, (uint32_t)(GUEST_VIRTIO_PCI_SPI_LAST - 32 + 1));
     }
 
     for (i = 0; i < d_config->b_info.num_irqs; i++) {
@@ -152,9 +175,13 @@ int libxl__arch_domain_prepare_config(libxl__gc *gc,
         }
 
         /* The same check as for vpl011 */
-        if (virtio_enabled &&
-            (irq >= GUEST_VIRTIO_MMIO_SPI_FIRST && irq <= virtio_irq)) {
+        if (virtio_mmio_enabled &&
+        		(irq >= GUEST_VIRTIO_MMIO_SPI_FIRST && irq <= virtio_mmio_irq_last)) {
             LOG(ERROR, "Physical IRQ %u conflicting with Virtio MMIO IRQ range\n", irq);
+            return ERROR_FAIL;
+        } else if (virtio_pci_enabled &&
+        		(irq >= GUEST_VIRTIO_PCI_SPI_FIRST && irq <= GUEST_VIRTIO_PCI_SPI_LAST)) {
+            LOG(ERROR, "Physical IRQ %u conflicting with Virtio PCI IRQ range\n", irq);
             return ERROR_FAIL;
         }
 
@@ -876,6 +903,7 @@ static int make_vpl011_uart_node(libxl__gc *gc, void *fdt,
 
 #define PCI_NUM_IRQ   4
 #define PCI_IRQ_MAP_STRIDE   8
+#define PCI_IOMMU_MAP_STRIDE   4
 
 static int create_vpci_irq_map(libxl__gc *gc, void *fdt)
 {
@@ -923,9 +951,69 @@ static int create_vpci_irq_map(libxl__gc *gc, void *fdt)
     return 0;
 }
 
+static int create_vpci_iommu_map(libxl__gc *gc, void *fdt,
+		libxl_domain_config *d_config)
+{
+    int res;
+    uint32_t *full_iommu_map = NULL;
+    uint32_t *iommu_map;
+    unsigned int ntranslated = 0;
+    unsigned int i;
+
+    for (i = 0; i < d_config->num_virtio_devices; i++) {
+        libxl_device_virtio *vdev = &d_config->virtio_devices[i];
+
+        if ((vdev->backend_domid != LIBXL_TOOLSTACK_DOMID) &&
+                (vdev->transport == LIBXL_VIRTIO_TRANSPORT_PCI))
+            ntranslated ++;
+    }
+
+    if (!ntranslated)
+        return 0;
+
+    full_iommu_map = malloc(ntranslated * sizeof(uint32_t) * PCI_IOMMU_MAP_STRIDE);
+    if (!full_iommu_map)
+        return -ENOMEM;
+
+    iommu_map = full_iommu_map;
+
+    for (i = 0; i < d_config->num_virtio_devices; i++) {
+        libxl_device_virtio *vdev = &d_config->virtio_devices[i];
+
+        if ((vdev->backend_domid != LIBXL_TOOLSTACK_DOMID) &&
+                (vdev->transport == LIBXL_VIRTIO_TRANSPORT_PCI)) {
+            unsigned int j = 0;
+            uint16_t bdf = (vdev->u.pci.bus << 8) |
+            		(vdev->u.pci.dev << 3) | vdev->u.pci.func;
+
+            /* rid_base (1 cell) */
+            iommu_map[j++] = cpu_to_fdt32(bdf);
+
+            /* iommu_phandle (1 cell) */
+            iommu_map[j++] = cpu_to_fdt32(GUEST_PHANDLE_IOMMU);
+
+            /* iommu_base (1 cell) */
+            iommu_map[j++] = cpu_to_fdt32(vdev->backend_domid);
+
+            /* length (1 cell) */
+            iommu_map[j++] = cpu_to_fdt32(1 << 3);
+
+            iommu_map += PCI_IOMMU_MAP_STRIDE;
+        }
+    }
+
+    res = fdt_property(fdt, "iommu-map", full_iommu_map,
+                       ntranslated * sizeof(uint32_t) * PCI_IOMMU_MAP_STRIDE);
+    if (res) return res;
+
+    free(full_iommu_map);
+
+    return 0;
+}
+
 static int make_vpci_node(libxl__gc *gc, void *fdt,
-                          const struct arch_info *ainfo,
-                          struct xc_dom_image *dom, uint32_t backend_domid)
+                          libxl_domain_config *d_config,
+                          struct xc_dom_image *dom, bool virtio_pci)
 {
     int res;
     const uint64_t vpci_ecam_base = GUEST_VPCI_ECAM_BASE;
@@ -969,21 +1057,17 @@ static int make_vpci_node(libxl__gc *gc, void *fdt,
      * they won't break the PCI passthrough as we might have both features
      * enabled for the same guest.
      */
-    res = fdt_property(fdt, "dma-coherent", NULL, 0);
-    if (res) return res;
+    if (virtio_pci) {
+		res = fdt_property(fdt, "dma-coherent", NULL, 0);
+		if (res) return res;
 
-    /* Legacy PCI interrupts (#INTA - #INTD) */
-    res = create_vpci_irq_map(gc, fdt);
-    if (res) return res;
+		/* Legacy PCI interrupts (#INTA - #INTD) */
+		res = create_vpci_irq_map(gc, fdt);
+		if (res) return res;
 
-    if (backend_domid != LIBXL_TOOLSTACK_DOMID && backend_domid != INVALID_DOMID) {
-        uint32_t iommus_prop[2];
-
-        iommus_prop[0] = cpu_to_fdt32(GUEST_PHANDLE_IOMMU);
-        iommus_prop[1] = cpu_to_fdt32(backend_domid);
-
-        res = fdt_property(fdt, "iommus", iommus_prop, sizeof(iommus_prop));
-        if (res) return res;
+		/* xen,grant-dma bindings */
+		res = create_vpci_iommu_map(gc, fdt, d_config);
+		if (res) return res;
     }
 
     res = fdt_end_node(fdt);
@@ -1307,6 +1391,7 @@ static int libxl__prepare_dtb(libxl__gc *gc, libxl_domain_config *d_config,
     libxl_domain_build_info *const info = &d_config->b_info;
     bool iommu_needed = false;
     unsigned int i;
+    unsigned int num_virtio_pcidevs = 0;
 
     const libxl_version_info *vers;
     const struct arch_info *ainfo;
@@ -1410,12 +1495,37 @@ next_resize:
         if (info->tee == LIBXL_TEE_TYPE_OPTEE)
             FDT( make_optee_node(gc, fdt) );
 
+        for (i = 0; i < d_config->num_virtio_devices; i++) {
+			libxl_device_virtio *vdev = &d_config->virtio_devices[i];
+
+			if (vdev->backend_domid != LIBXL_TOOLSTACK_DOMID)
+				iommu_needed = true;
+
+			if (vdev->transport == LIBXL_VIRTIO_TRANSPORT_MMIO) {
+				FDT( make_virtio_mmio_node(gc, fdt, vdev->u.mmio.base, vdev->u.mmio.irq,
+						vdev->backend_domid) );
+			} else
+				num_virtio_pcidevs ++;
+		}
+
+        if (d_config->num_pcidevs || num_virtio_pcidevs) {
+            FDT( make_vpci_node(gc, fdt, d_config, dom, !!num_virtio_pcidevs) );
+        }
+
+#if 0
+        if (d_config->num_pcidevs || num_virtio_pcidevs) {
+            FDT( make_vpci_node(gc, fdt, ainfo, dom, info->virtio_qemu_domid) );
+        }
+#endif
+
+#if 0
         if (d_config->num_pcidevs || info->virtio_qemu_domid != INVALID_DOMID) {
             if (info->virtio_qemu_domid != LIBXL_TOOLSTACK_DOMID)
                 iommu_needed = true;
 
             FDT( make_vpci_node(gc, fdt, ainfo, dom, info->virtio_qemu_domid) );
         }
+#endif
 
         for (i = 0; i < d_config->num_disks; i++) {
             libxl_device_disk *disk = &d_config->disks[i];
@@ -1429,6 +1539,7 @@ next_resize:
             }
         }
 
+#if 0
         if (info->virtio_qemu_domid != INVALID_DOMID) {
             if (info->virtio_qemu_domid != LIBXL_TOOLSTACK_DOMID)
                 iommu_needed = true;
@@ -1438,6 +1549,7 @@ next_resize:
                      GUEST_VIRTIO_MMIO_SPI_FIRST + i, info->virtio_qemu_domid) );
             }
         }
+#endif
 
         if (libxl_defbool_val(d_config->b_info.tpm))
             FDT( make_tpm_node(gc, fdt, ainfo, dom) );
