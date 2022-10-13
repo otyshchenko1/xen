@@ -887,6 +887,13 @@ static int make_vpl011_uart_node(libxl__gc *gc, void *fdt,
     return 0;
 }
 
+struct of_iommu_map_entry {
+	uint32_t				rid_base;
+	uint32_t				iommu_phandle;
+	uint32_t				iommu_base;
+	uint32_t				length;
+} __attribute__((packed));
+
 #define PCI_NUM_IRQ   4
 #define PCI_IRQ_MAP_STRIDE   8
 
@@ -990,13 +997,33 @@ static int make_vpci_node(libxl__gc *gc, void *fdt,
     if (res) return res;
 
     if (backend_domid != LIBXL_TOOLSTACK_DOMID && backend_domid != INVALID_DOMID) {
-        uint32_t iommus_prop[2];
+        struct of_iommu_map_entry *iommu_map;
+        unsigned ntranslated = 10;
+        unsigned i;
 
-        iommus_prop[0] = cpu_to_fdt32(GUEST_PHANDLE_IOMMU);
-        iommus_prop[1] = cpu_to_fdt32(backend_domid);
+        iommu_map = malloc(ntranslated * sizeof(struct of_iommu_map_entry));
+        if (!iommu_map) {
+            LOG(ERROR, "cannot allocate iommu_map.");
+            return -1;
+        }
 
-        res = fdt_property(fdt, "iommus", iommus_prop, sizeof(iommus_prop));
+        for (i = 0; i < ntranslated; i++) {
+            struct of_iommu_map_entry *entry = &iommu_map[i];
+
+            *entry = (struct of_iommu_map_entry) {
+                .rid_base = cpu_to_fdt32((i + 1) << 3),
+                .iommu_phandle = cpu_to_fdt32(GUEST_PHANDLE_IOMMU),
+                /* TODO Per device and INVALID_DOMID for non-traslated devices */
+                .iommu_base = cpu_to_fdt32(backend_domid),
+                .length = cpu_to_fdt32(1 << 3),
+            };
+        }
+
+        res = fdt_property(fdt, "iommu-map", iommu_map,
+                           ntranslated * sizeof(struct of_iommu_map_entry));
         if (res) return res;
+
+        free(iommu_map);
     }
 
     res = fdt_end_node(fdt);
