@@ -22,49 +22,6 @@
 
 #include <asm/vgic.h>
 
-static int set_pci_intx_level(struct domain *d, uint16_t domain,
-                              uint8_t bus, uint8_t device,
-                              uint8_t intx, uint8_t level)
-{
-    struct hvm_irq *hvm_irq = hvm_domain_irq(d);
-    unsigned int irq, link;
-
-    if ( domain != 0 || bus != 0 || device > 0x1f || intx > 3 )
-        return -EINVAL;
-
-    link = hvm_pci_intx_link(device, intx);
-    //isa_irq = hvm_irq->pci_link.route[link];
-    irq = link + GUEST_VIRTIO_PCI_SPI_FIRST;
-
-    switch ( level )
-    {
-    case 0:
-        if ( !__test_and_clear_bit(device*4 + intx, &hvm_irq->pci_intx.i) ) {
-            printk("--- SKIP LOW: dev %d link %d irq %d level %d /// count %d\n",
-                   device, link, irq, level, hvm_irq->pci_link_assert_count[link]);
-            return 0;
-        }
-
-        if ( --hvm_irq->pci_link_assert_count[link] == 0 )
-            vgic_inject_irq(d, NULL, irq, false);
-        break;
-    case 1:
-        if ( __test_and_set_bit(device*4 + intx, &hvm_irq->pci_intx.i) ) {
-            printk("--- SKIP HIGH: dev %d link %d irq %d level %d /// count %d\n",
-                   device, link, irq, level, hvm_irq->pci_link_assert_count[link]);
-            return 0;
-        }
-
-        if ( hvm_irq->pci_link_assert_count[link]++ == 0 )
-            vgic_inject_irq(d, NULL, irq, true);
-        break;
-    default:
-        return -EINVAL;
-    }
-
-    return 0;
-}
-
 int dm_op(const struct dmop_args *op_args)
 {
     struct domain *d;
@@ -82,7 +39,6 @@ int dm_op(const struct dmop_args *op_args)
         [XEN_DMOP_destroy_ioreq_server]             = sizeof(struct xen_dm_op_destroy_ioreq_server),
         [XEN_DMOP_set_irq_level]                    = sizeof(struct xen_dm_op_set_irq_level),
         [XEN_DMOP_nr_vcpus]                         = sizeof(struct xen_dm_op_nr_vcpus),
-        [XEN_DMOP_set_pci_intx_level]               = sizeof(struct xen_dm_op_set_pci_intx_level),
     };
 
     rc = rcu_lock_remote_domain_by_id(op_args->domid, &d);
@@ -174,18 +130,6 @@ int dm_op(const struct dmop_args *op_args)
         data->vcpus = d->max_vcpus;
         const_op = false;
         rc = 0;
-        break;
-    }
-
-    case XEN_DMOP_set_pci_intx_level:
-    {
-        const struct xen_dm_op_set_pci_intx_level *data =
-            &op.u.set_pci_intx_level;
-
-        spin_lock(&d->arch.hvm.irq_lock);
-        rc = set_pci_intx_level(d, data->domain, data->bus, data->device,
-                                data->intx, data->level);
-        spin_unlock(&d->arch.hvm.irq_lock);
         break;
     }
 
