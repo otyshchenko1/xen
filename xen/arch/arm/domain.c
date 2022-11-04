@@ -783,9 +783,6 @@ int arch_domain_create(struct domain *d,
     if ( (rc = domain_vpci_init(d)) != 0 )
         goto fail;
 
-    spin_lock_init(&d->arch.hvm.irq_lock);
-    d->arch.hvm.irq = xzalloc(struct hvm_irq);
-
     d->arch.vgsx_osid = config->arch.vgsx_osid;
 
     return 0;
@@ -812,7 +809,6 @@ void arch_domain_destroy(struct domain *d)
                        get_order_from_bytes(d->arch.efi_acpi_len));
 #endif
     domain_io_free(d);
-    XFREE(d->arch.hvm.irq);
 }
 
 void arch_domain_shutdown(struct domain *d)
