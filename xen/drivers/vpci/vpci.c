@@ -103,6 +103,17 @@ int vpci_add_handlers(struct pci_dev *pdev)
 
     return rc;
 }
+
+#ifdef CONFIG_HAS_VPCI_GUEST_SUPPORT
+/*
+ * Find the physical device which is mapped to the virtual device
+ * and translate virtual SBDF to the physical one.
+ */
+bool vpci_translate_virtual_device(struct domain *d, pci_sbdf_t *sbdf)
+{
+    return false;
+}
+#endif /* CONFIG_HAS_VPCI_GUEST_SUPPORT */
 #endif /* __XEN__ */
 
 static int vpci_register_cmp(const struct vpci_register *r1,
