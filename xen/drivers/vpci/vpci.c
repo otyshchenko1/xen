@@ -161,10 +161,14 @@ static int add_virtual_device(struct pci_dev *pdev)
         return -EOPNOTSUPP;
     }
 
+    write_lock(&pdev->domain->pci_lock);
     new_dev_number = find_first_zero_bit(d->vpci_dev_assigned_map,
                                          VPCI_MAX_VIRT_DEV);
     if ( new_dev_number >= VPCI_MAX_VIRT_DEV )
+    {
+        write_unlock(&pdev->domain->pci_lock);
         return -ENOSPC;
+    }
 
     __set_bit(new_dev_number, &d->vpci_dev_assigned_map);
 
@@ -178,6 +182,7 @@ static int add_virtual_device(struct pci_dev *pdev)
      */
     sbdf.devfn = PCI_DEVFN(new_dev_number, 0);
     pdev->vpci->guest_sbdf = sbdf;
+    write_unlock(&pdev->domain->pci_lock);
 
     return 0;
 }
