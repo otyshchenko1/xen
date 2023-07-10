@@ -40,10 +40,19 @@ static int vpci_mmio_read(struct vcpu *v, mmio_info_t *info,
      * For the passed through devices we need to map their virtual SBDF
      * to the physical PCI device being passed through.
      */
-    if ( !bridge && !vpci_translate_virtual_device(v->domain, &sbdf) )
+    if ( !bridge )
     {
-        *r = ~0ul;
-        return 1;
+        bool translated;
+
+        read_lock(&v->domain->pci_lock);
+        translated = vpci_translate_virtual_device(v->domain, &sbdf);
+        read_unlock(&v->domain->pci_lock);
+
+        if ( !translated )
+        {
+            *r = ~0ul;
+            return 1;
+        }
     }
 
     if ( vpci_ecam_read(sbdf, ECAM_REG_OFFSET(info->gpa),
@@ -72,8 +81,17 @@ static int vpci_mmio_write(struct vcpu *v, mmio_info_t *info,
      * For the passed through devices we need to map their virtual SBDF
      * to the physical PCI device being passed through.
      */
-    if ( !bridge && !vpci_translate_virtual_device(v->domain, &sbdf) )
-        return 1;
+    if ( !bridge )
+    {
+        bool translated;
+
+        read_lock(&v->domain->pci_lock);
+        translated = vpci_translate_virtual_device(v->domain, &sbdf);
+        read_unlock(&v->domain->pci_lock);
+
+        if ( !translated )
+            return 1;
+    }
 
     return vpci_ecam_write(sbdf, ECAM_REG_OFFSET(info->gpa),
                            1U << info->dabt.size, r);

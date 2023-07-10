@@ -190,6 +190,7 @@ static int add_virtual_device(struct pci_dev *pdev)
 /*
  * Find the physical device which is mapped to the virtual device
  * and translate virtual SBDF to the physical one.
+ * This must hold domain's pci_lock in read mode.
  */
 bool vpci_translate_virtual_device(struct domain *d, pci_sbdf_t *sbdf)
 {
@@ -197,20 +198,15 @@ bool vpci_translate_virtual_device(struct domain *d, pci_sbdf_t *sbdf)
 
     ASSERT(!is_hardware_domain(d));
 
-    read_lock(&d->pci_lock);
     for_each_pdev( d, pdev )
     {
         if ( pdev->vpci && (pdev->vpci->guest_sbdf.sbdf == sbdf->sbdf) )
         {
             /* Replace guest SBDF with the physical one. */
             *sbdf = pdev->sbdf;
-            read_unlock(&d->pci_lock);
-
             return true;
         }
     }
-
-    read_unlock(&d->pci_lock);
 
     return false;
 }
