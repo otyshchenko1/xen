@@ -1462,7 +1462,6 @@ static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag)
 {
     const struct domain_iommu *hd = dom_iommu(d);
     struct pci_dev *pdev;
-    uint8_t old_devfn;
     int rc = 0;
 
     if ( !is_iommu_enabled(d) )
@@ -1501,8 +1500,6 @@ static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag)
                           pci_to_dev(pdev), flag)) )
         goto done;
 
-    old_devfn = devfn;
-
     for ( ; pdev->phantom_stride; rc = 0 )
     {
         devfn += pdev->phantom_stride;
@@ -1511,10 +1508,17 @@ static int assign_device(struct domain *d, u16 seg, u8 bus, u8 devfn, u32 flag)
         rc = iommu_call(hd->platform_ops, assign_device, d, devfn,
                         pci_to_dev(pdev), flag);
     }
+    if ( rc )
+        goto done;
 
+    devfn = pdev->devfn;
     rc = vpci_assign_device(pdev);
-    if ( rc && deassign_device(d, seg, bus, old_devfn) )
+    if ( rc && deassign_device(d, seg, bus, devfn) )
+    {
+        printk(XENLOG_ERR "%pd: %pp was left partially assigned\n",
+               d, &PCI_SBDF(seg, bus, devfn));
         domain_crash(d);
+    }
 
  done:
     if ( rc )

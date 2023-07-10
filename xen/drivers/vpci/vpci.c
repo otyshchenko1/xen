@@ -136,15 +136,6 @@ int vpci_assign_device(struct pci_dev *pdev)
 
     return rc;
 }
-
-/* Notify vPCI that device is de-assigned from guest. */
-void vpci_deassign_device(struct pci_dev *pdev)
-{
-    if ( !has_vpci(pdev->domain) )
-        return;
-
-    vpci_remove_device(pdev);
-}
 #endif /* CONFIG_HAS_VPCI_GUEST_SUPPORT */
 
 #endif /* __XEN__ */
