@@ -858,12 +858,15 @@ get_page_from_l1e(
         return 0;
     }
 
+    read_lock(&l1e_owner->pci_lock);
     if ( unlikely(l1f & l1_disallow_mask(l1e_owner)) )
     {
         gdprintk(XENLOG_WARNING, "Bad L1 flags %x\n",
                  l1f & l1_disallow_mask(l1e_owner));
+        read_unlock(&l1e_owner->pci_lock);
         return -EINVAL;
     }
+    read_unlock(&l1e_owner->pci_lock);
 
     valid = mfn_valid(_mfn(mfn));
 
@@ -2142,12 +2145,15 @@ static int mod_l1_entry(l1_pgentry_t *pl1e, l1_pgentry_t nl1e,
     {
         struct page_info *page = NULL;
 
+        read_lock(&pt_dom->pci_lock);
         if ( unlikely(l1e_get_flags(nl1e) & l1_disallow_mask(pt_dom)) )
         {
             gdprintk(XENLOG_WARNING, "Bad L1 flags %x\n",
                     l1e_get_flags(nl1e) & l1_disallow_mask(pt_dom));
+            read_unlock(&pt_dom->pci_lock);
             return -EINVAL;
         }
+        read_unlock(&pt_dom->pci_lock);
 
         /* Translate foreign guest address. */
         if ( cmd != MMU_PT_UPDATE_NO_TRANSLATE &&

@@ -349,10 +349,12 @@ p2m_pod_set_mem_target(struct domain *d, unsigned long target)
 
     ASSERT( pod_target >= p2m->pod.count );
 
+    read_lock(&d->pci_lock);
     if ( has_arch_pdevs(d) || cache_flush_permitted(d) )
         ret = -ENOTEMPTY;
     else
         ret = p2m_pod_set_cache_target(p2m, pod_target, 1/*preemptible*/);
+    read_unlock(&d->pci_lock);
 
 out:
     pod_unlock(p2m);
@@ -1401,8 +1403,13 @@ guest_physmap_mark_populate_on_demand(struct domain *d, unsigned long gfn,
     if ( !paging_mode_translate(d) )
         return -EINVAL;
 
+    read_lock(&d->pci_lock);
     if ( has_arch_pdevs(d) || cache_flush_permitted(d) )
+    {
+        read_unlock(&d->pci_lock);
         return -ENOTEMPTY;
+    }
+    read_unlock(&d->pci_lock);
 
     do {
         rc = mark_populate_on_demand(d, gfn, chunk_order);

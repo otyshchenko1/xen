@@ -1889,6 +1889,7 @@ void cf_check vmx_do_resume(void)
          *  2: execute wbinvd on all dirty pCPUs when guest wbinvd exits.
          * If VT-d engine can force snooping, we don't need to do these.
          */
+        read_lock(&v->domain->pci_lock);
         if ( has_arch_pdevs(v->domain) && !iommu_snoop
                 && !cpu_has_wbinvd_exiting )
         {
@@ -1896,6 +1897,7 @@ void cf_check vmx_do_resume(void)
             if ( cpu != -1 )
                 flush_mask(cpumask_of(cpu), FLUSH_CACHE);
         }
+        read_unlock(&v->domain->pci_lock);
 
         vmx_clear_vmcs(v);
         vmx_load_vmcs(v);

@@ -2381,12 +2381,14 @@ int hvm_set_cr0(unsigned long value, bool may_defer)
         }
     }
 
+    read_lock(&d->pci_lock);
     if ( ((value ^ old_value) & X86_CR0_CD) &&
          is_iommu_enabled(d) && hvm_funcs.handle_cd &&
          (!rangeset_is_empty(d->iomem_caps) ||
           !rangeset_is_empty(d->arch.ioport_caps) ||
           has_arch_pdevs(d)) )
         alternative_vcall(hvm_funcs.handle_cd, v, value);
+    read_unlock(&d->pci_lock);
 
     hvm_update_cr(v, 0, value);
 

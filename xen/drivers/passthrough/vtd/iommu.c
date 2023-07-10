@@ -186,6 +186,8 @@ static bool any_pdev_behind_iommu(const struct domain *d,
 {
     const struct pci_dev *pdev;
 
+    ASSERT(rw_is_locked(&d->pci_lock));
+
     for_each_pdev ( d, pdev )
     {
         const struct acpi_drhd_unit *drhd;
@@ -2765,6 +2767,7 @@ static int cf_check reassign_device_ownership(
 
     if ( !QUARANTINE_SKIP(target, pdev->arch.vtd.pgd_maddr) )
     {
+        read_lock(&target->pci_lock);
         if ( !has_arch_pdevs(target) )
             vmx_pi_hooks_assign(target);
 
@@ -2780,21 +2783,26 @@ static int cf_check reassign_device_ownership(
 #endif
 
         ret = domain_context_mapping(target, devfn, pdev);
+        read_unlock(&target->pci_lock);
 
         if ( !ret && pdev->devfn == devfn &&
              !QUARANTINE_SKIP(source, pdev->arch.vtd.pgd_maddr) )
         {
             const struct acpi_drhd_unit *drhd = acpi_find_matched_drhd_unit(pdev);
 
+            read_lock(&source->pci_lock);
             if ( drhd )
                 check_cleanup_domid_map(source, pdev, drhd->iommu);
+            read_unlock(&source->pci_lock);
         }
     }
     else
     {
         const struct acpi_drhd_unit *drhd;
 
+        read_lock(&source->pci_lock);
         drhd = domain_context_unmap(source, devfn, pdev);
+        read_unlock(&source->pci_lock);
         ret = IS_ERR(drhd) ? PTR_ERR(drhd) : 0;
     }
     if ( ret )
@@ -2806,12 +2814,21 @@ static int cf_check reassign_device_ownership(
 
     if ( devfn == pdev->devfn && pdev->domain != target )
     {
-        list_move(&pdev->domain_list, &target->pdev_list);
+        write_lock(&pdev->domain->pci_lock);
+        list_del(&pdev->domain_list);
+        write_unlock(&pdev->domain->pci_lock);
+
+        write_lock(&target->pci_lock);
+        list_add(&pdev->domain_list, &target->pdev_list);
+        write_unlock(&target->pci_lock);
+
         pdev->domain = target;
     }
 
+    read_lock(&source->pci_lock);
     if ( !has_arch_pdevs(source) )
         vmx_pi_hooks_deassign(source);
+    read_unlock(&source->pci_lock);
 
     /*
      * If the device belongs to the hardware domain, and it has RMRR, don't

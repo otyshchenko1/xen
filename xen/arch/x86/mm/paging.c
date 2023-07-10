@@ -205,21 +205,27 @@ static int paging_log_dirty_enable(struct domain *d)
 {
     int ret;
 
+    read_lock(&d->pci_lock);
     if ( has_arch_pdevs(d) )
     {
         /*
          * Refuse to turn on global log-dirty mode
          * if the domain is sharing the P2M with the IOMMU.
          */
+        read_unlock(&d->pci_lock);
         return -EINVAL;
     }
 
     if ( paging_mode_log_dirty(d) )
+    {
+        read_unlock(&d->pci_lock);
         return -EINVAL;
+    }
 
     domain_pause(d);
     ret = d->arch.paging.log_dirty.ops->enable(d);
     domain_unpause(d);
+    read_unlock(&d->pci_lock);
 
     return ret;
 }

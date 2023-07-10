@@ -102,6 +102,8 @@ static bool any_pdev_behind_iommu(const struct domain *d,
 {
     const struct pci_dev *pdev;
 
+    ASSERT(rw_is_locked(&d->pci_lock));
+
     for_each_pdev ( d, pdev )
     {
         if ( pdev == exclude )
@@ -467,17 +469,24 @@ static int cf_check reassign_device(
 
     if ( !QUARANTINE_SKIP(target, pdev) )
     {
+	read_lock(&target->pci_lock);
         rc = amd_iommu_setup_domain_device(target, iommu, devfn, pdev);
         if ( rc )
             return rc;
+	read_unlock(&target->pci_lock);
     }
     else
         amd_iommu_disable_domain_device(source, iommu, devfn, pdev);
 
     if ( devfn == pdev->devfn && pdev->domain != target )
     {
-        list_move(&pdev->domain_list, &target->pdev_list);
-        pdev->domain = target;
+        write_lock(&pdev->domain->pci_lock);
+        list_del(&pdev->domain_list);
+        write_unlock(&pdev->domain->pci_lock);
+
+        write_lock(&target->pci_lock);
+        list_add(&pdev->domain_list, &target->pdev_list);
+        write_unlock(&target->pci_lock);
     }
 
     /*
@@ -628,12 +637,14 @@ static int cf_check amd_iommu_add_device(u8 devfn, struct pci_dev *pdev)
         fresh_domid = true;
     }
 
+    read_lock(&pdev->domain->pci_lock);
     ret = amd_iommu_setup_domain_device(pdev->domain, iommu, devfn, pdev);
     if ( ret && fresh_domid )
     {
         iommu_free_domid(pdev->arch.pseudo_domid, iommu->domid_map);
         pdev->arch.pseudo_domid = DOMID_INVALID;
     }
+    read_unlock(&pdev->domain->pci_lock);
 
     return ret;
 }
