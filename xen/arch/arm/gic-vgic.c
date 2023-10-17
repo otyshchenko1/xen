@@ -242,6 +242,7 @@ static void gic_update_one_lr(struct vcpu *v, int i)
                  vgic_pci_irq_level(v->domain, irq) )
             {
                 /*printk(">>> %s [%d] Raise IRQ %d\n", __func__, __LINE__, irq);*/
+                ASSERT(!test_bit(irq, v->domain->arch.vgic.allocated_irqs));
 
                 set_bit(GIC_IRQ_GUEST_QUEUED, &p->status);
                 if ( test_bit(GIC_IRQ_GUEST_ENABLED, &p->status) )
