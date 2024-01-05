@@ -16,6 +16,7 @@
 #include <xen/errno.h>
 #include <xen/sched.h>
 #include <xen/vmap.h>
+#include <xen/param.h>
 
 #include <asm/io.h>
 #include <asm/gic.h>
@@ -25,6 +26,10 @@ const unsigned int nr_irqs = NR_IRQS;
 
 static unsigned int local_irqs_type[NR_LOCAL_IRQS];
 static DEFINE_SPINLOCK(local_irqs_type_lock);
+
+/* If true, the GSX IRQ support is enabled for the guests */
+bool opt_rcar3_gsx = true;
+boolean_param("rcar3_gsx", opt_rcar3_gsx);
 
 #define GSX_MAX_OS_CNT                                     8
 #define GSX_REG_BASE_ADDR                         0xfd000000
@@ -337,6 +342,12 @@ void init_gsx_interrupt(void)
 {
     const uint32_t irq_reg_offset[GSX_MAX_OS_CNT] = GSX_OS_IRQ_CNT_REGS;
     int i, ret;
+
+    if ( !opt_rcar3_gsx )
+    {
+        printk(XENLOG_INFO "GSX IRQ is disabled\n");
+        return;
+    }
 
     gsx_reg_base = ioremap_nocache(GSX_REG_BASE_ADDR, GSX_REG_BANK_SIZE);
     if ( !gsx_reg_base )
@@ -670,7 +681,7 @@ int route_irq_to_guest(struct domain *d, unsigned int virq,
         }
         else
         {
-            if ( irq == gsx_irq_num )
+            if ( opt_rcar3_gsx && irq == gsx_irq_num )
                 retval = add_gsx_domain(d);
             else
             {
