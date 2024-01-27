@@ -740,6 +740,7 @@ ColoExport string
 ActiveDisk string
 HiddenDisk string
 Trusted Defbool
+GrantUsage Defbool
 }
 
 type DeviceNic struct {

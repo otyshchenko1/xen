@@ -1880,6 +1880,9 @@ x.HiddenDisk = C.GoString(xc.hidden_disk)
 if err := x.Trusted.fromC(&xc.trusted);err != nil {
 return fmt.Errorf("converting field Trusted: %v", err)
 }
+if err := x.GrantUsage.fromC(&xc.grant_usage);err != nil {
+return fmt.Errorf("converting field GrantUsage: %v", err)
+}
 
  return nil}
 
@@ -1927,6 +1930,9 @@ if x.HiddenDisk != "" {
 xc.hidden_disk = C.CString(x.HiddenDisk)}
 if err := x.Trusted.toC(&xc.trusted); err != nil {
 return fmt.Errorf("converting field Trusted: %v", err)
+}
+if err := x.GrantUsage.toC(&xc.grant_usage); err != nil {
+return fmt.Errorf("converting field GrantUsage: %v", err)
 }
 
  return nil
