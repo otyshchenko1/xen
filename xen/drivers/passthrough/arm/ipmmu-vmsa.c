@@ -41,6 +41,7 @@
 #include <xen/err.h>
 #include <xen/iommu.h>
 #include <xen/irq.h>
+#include <xen/keyhandler.h>
 #include <xen/lib.h>
 #include <xen/list.h>
 #include <xen/mm.h>
@@ -1718,6 +1719,12 @@ static const struct iommu_ops ipmmu_iommu_ops =
     .resume          = ipmmu_resume,
 };
 
+static void cf_check ipmmu_suspend_resume(unsigned char key)
+{
+    if ( !ipmmu_suspend() )
+        ipmmu_resume();
+}
+
 static __init int ipmmu_init(struct dt_device_node *node, const void *data)
 {
     int ret;
@@ -1734,6 +1741,9 @@ static __init int ipmmu_init(struct dt_device_node *node, const void *data)
         dev_err(&node->dev, "Failed to init IPMMU (%d)\n", ret);
         return ret;
     }
+
+    if ( !iommu_get_ops() )
+        register_keyhandler('i', &ipmmu_suspend_resume, "ipmmu suspend/resume", 0);
 
     iommu_set_ops(&ipmmu_iommu_ops);
 
