@@ -58,6 +58,8 @@
 #define dev_print(dev, lvl, fmt, ...)    \
     printk(lvl "ipmmu: %s: " fmt, dev_name(dev), ## __VA_ARGS__)
 
+#define dev_dbg(dev, fmt, ...)    \
+    dev_print(dev, XENLOG_DEBUG, fmt, ## __VA_ARGS__)
 #define dev_info(dev, fmt, ...)    \
     dev_print(dev, XENLOG_INFO, fmt, ## __VA_ARGS__)
 #define dev_warn(dev, fmt, ...)    \
@@ -117,6 +119,12 @@ struct ipmmu_features {
     unsigned int imuctr_ttsel_mask;
 };
 
+struct hw_register {
+    const char *reg_name;
+    unsigned int reg_offset;
+    unsigned int reg_data;
+};
+
 /* Root/Cache IPMMU device's information */
 struct ipmmu_vmsa_device {
     struct device *dev;
@@ -129,6 +137,7 @@ struct ipmmu_vmsa_device {
     struct ipmmu_vmsa_domain *domains[IPMMU_CTX_MAX];
     unsigned int utlb_refcount[IPMMU_UTLB_MAX];
     const struct ipmmu_features *features;
+    struct hw_register *reg_backup[IPMMU_CTX_MAX];
 };
 
 /*
@@ -166,6 +175,16 @@ struct ipmmu_vmsa_domain {
     /* Used to link this IPMMU domain for the same Xen domain */
     struct list_head list;
 };
+
+struct ipmmu_vmsa_backup {
+    struct device *dev;
+    unsigned int *utlbs_val;
+    unsigned int *asids_val;
+    struct list_head list;
+};
+
+static DEFINE_SPINLOCK(ipmmu_devices_backup_lock);
+static LIST_HEAD(ipmmu_devices_backup);
 
 /* Used to keep track of registered IPMMU devices */
 static LIST_HEAD(ipmmu_devices);
@@ -228,6 +247,123 @@ static DEFINE_SPINLOCK(ipmmu_devices_lock);
 
 #define IMSAUXCTLR          0x0504
 #define IMSAUXCTLR_S2PTE    (1 << 3)
+
+#define HW_REGISTER_BACKUP_SIZE    ARRAY_SIZE(root_pgtable0_reg)
+static struct hw_register root_pgtable0_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable1_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable2_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable3_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable4_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable5_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable6_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable7_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable8_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable9_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable10_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable11_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable12_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable13_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable14_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+static struct hw_register root_pgtable15_reg[] = {
+    {"IMTTLBR0", IMTTLBR0, 0},
+    {"IMTTUBR0", IMTTUBR0, 0},
+    {"IMTTBCR",  IMTTBCR,  0},
+    {"IMCTR",    IMCTR,    0},
+};
+
+static struct hw_register *root_pgtable[IPMMU_CTX_MAX] = {
+    root_pgtable0_reg,
+    root_pgtable1_reg,
+    root_pgtable2_reg,
+    root_pgtable3_reg,
+    root_pgtable4_reg,
+    root_pgtable5_reg,
+    root_pgtable6_reg,
+    root_pgtable7_reg,
+    root_pgtable8_reg,
+    root_pgtable9_reg,
+    root_pgtable10_reg,
+    root_pgtable11_reg,
+    root_pgtable12_reg,
+    root_pgtable13_reg,
+    root_pgtable14_reg,
+    root_pgtable15_reg,
+};
 
 static struct ipmmu_vmsa_device *to_ipmmu(struct device *dev)
 {
@@ -394,6 +530,12 @@ static void ipmmu_imuasid_write(struct ipmmu_vmsa_device *mmu,
     ipmmu_write(mmu, ipmmu_utlb_reg(mmu, IMUASID(utlb)), data);
 }
 
+static uint32_t ipmmu_imuasid_read(struct ipmmu_vmsa_device *mmu,
+                                   unsigned int utlb)
+{
+    return ipmmu_read(mmu, ipmmu_utlb_reg(mmu, IMUASID(utlb)));
+}
+
 static void ipmmu_imuctr_write(struct ipmmu_vmsa_device *mmu,
                                unsigned int utlb, uint32_t data)
 {
@@ -546,6 +688,7 @@ static int ipmmu_domain_init_context(struct ipmmu_vmsa_domain *domain)
         return ret;
 
     domain->context_id = ret;
+    domain->mmu->root->reg_backup[ret] = root_pgtable[ret];
 
     /*
      * TTBR0
@@ -602,6 +745,7 @@ static void ipmmu_domain_destroy_context(struct ipmmu_vmsa_domain *domain)
     ipmmu_ctx_write_root(domain, IMCTR, IMCTR_FLUSH);
     ipmmu_tlb_sync(domain);
 
+    domain->mmu->root->reg_backup[domain->context_id] = NULL;
     ipmmu_domain_free_context(domain->mmu->root, domain->context_id);
 }
 
@@ -1293,6 +1437,8 @@ static int ipmmu_dt_xlate(struct device *dev,
 static int ipmmu_add_device(u8 devfn, struct device *dev)
 {
     struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(dev);
+    struct ipmmu_vmsa_backup *backup_data;
+    unsigned int *utlbs_val, *asids_val;
 
     /* Only let through devices that have been verified in xlate(). */
     if ( !to_ipmmu(dev) )
@@ -1306,6 +1452,33 @@ static int ipmmu_add_device(u8 devfn, struct device *dev)
 
     /* Let Xen know that the master device is protected by an IOMMU. */
     dt_device_set_protected(dev_to_dt(dev));
+
+    utlbs_val = xzalloc_array(unsigned int, fwspec->num_ids);
+    if ( !utlbs_val )
+        return -ENOMEM;
+
+    asids_val = xzalloc_array(unsigned int, fwspec->num_ids);
+    if ( !asids_val )
+    {
+        xfree(utlbs_val);
+        return -ENOMEM;
+    }
+
+    backup_data = xzalloc(struct ipmmu_vmsa_backup);
+    if ( !backup_data )
+    {
+        xfree(utlbs_val);
+        xfree(asids_val);
+        return -ENOMEM;
+    }
+
+    backup_data->dev = dev;
+    backup_data->utlbs_val = utlbs_val;
+    backup_data->asids_val = asids_val;
+
+    spin_lock(&ipmmu_devices_backup_lock);
+    list_add(&backup_data->list, &ipmmu_devices_backup);
+    spin_unlock(&ipmmu_devices_backup_lock);
 
     dev_info(dev, "Added master device (IPMMU %s micro-TLBs %u)\n",
              dev_name(fwspec->iommu_dev), fwspec->num_ids);
@@ -1359,6 +1532,175 @@ static void ipmmu_iommu_domain_teardown(struct domain *d)
     dom_iommu(d)->arch.priv = NULL;
 }
 
+static void ipmmu_utlbs_backup(struct ipmmu_vmsa_device *mmu)
+{
+    struct ipmmu_vmsa_backup *backup_data;
+
+    dev_dbg(mmu->dev, "Handle micro-TLBs backup\n");
+
+    spin_lock(&ipmmu_devices_backup_lock);
+
+    list_for_each_entry( backup_data, &ipmmu_devices_backup, list )
+    {
+        struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(backup_data->dev);
+        unsigned int i;
+
+        if ( to_ipmmu(backup_data->dev) != mmu )
+            continue;
+
+        for ( i = 0; i < fwspec->num_ids; i++ )
+        {
+            unsigned int utlb = fwspec->ids[i];
+
+            backup_data->asids_val[i] = ipmmu_imuasid_read(mmu, utlb);
+            backup_data->utlbs_val[i] = ipmmu_imuctr_read(mmu, utlb);
+        }
+    }
+
+    spin_unlock(&ipmmu_devices_backup_lock);
+}
+
+static void ipmmu_utlbs_restore(struct ipmmu_vmsa_device *mmu)
+{
+    struct ipmmu_vmsa_backup *backup_data;
+
+    dev_dbg(mmu->dev, "Handle micro-TLBs restore\n");
+
+    spin_lock(&ipmmu_devices_backup_lock);
+
+    list_for_each_entry( backup_data, &ipmmu_devices_backup, list )
+    {
+        struct iommu_fwspec *fwspec = dev_iommu_fwspec_get(backup_data->dev);
+        unsigned int i;
+
+        if ( to_ipmmu(backup_data->dev) != mmu )
+            continue;
+
+        for ( i = 0; i < fwspec->num_ids; i++ )
+        {
+            unsigned int utlb = fwspec->ids[i];
+
+            ipmmu_imuasid_write(mmu, utlb, backup_data->asids_val[i]);
+            ipmmu_imuctr_write(mmu, utlb, backup_data->utlbs_val[i]);
+        }
+    }
+
+    spin_unlock(&ipmmu_devices_backup_lock);
+}
+
+static void ipmmu_domain_backup_context(struct ipmmu_vmsa_domain *domain)
+{
+    struct ipmmu_vmsa_device *mmu = domain->mmu->root;
+    struct hw_register *reg = mmu->reg_backup[domain->context_id];
+    unsigned int i;
+
+    dev_dbg(mmu->dev, "Handle domain context %u backup\n", domain->context_id);
+
+    for ( i = 0; i < HW_REGISTER_BACKUP_SIZE; i++ )
+        reg[i].reg_data = ipmmu_ctx_read_root(domain, reg[i].reg_offset);
+}
+
+static void ipmmu_domain_restore_context(struct ipmmu_vmsa_domain *domain)
+{
+    struct ipmmu_vmsa_device *mmu = domain->mmu->root;
+    struct hw_register *reg = mmu->reg_backup[domain->context_id];
+    unsigned int i;
+
+    dev_dbg(mmu->dev, "Handle domain context %u restore\n", domain->context_id);
+
+    for ( i = 0; i < HW_REGISTER_BACKUP_SIZE; i++ )
+    {
+        if ( reg[i].reg_offset != IMCTR )
+            ipmmu_ctx_write_root(domain, reg[i].reg_offset, reg[i].reg_data);
+        else
+            ipmmu_ctx_write_all(domain, reg[i].reg_offset,
+                                reg[i].reg_data | IMCTR_FLUSH);
+    }
+}
+
+/*
+ * Xen: Unlike Linux implementation, Xen uses a single driver instance
+ * for handling all IPMMUs. There is no framework for ipmmu_suspend/resume
+ * callbacks to be invoked for each IPMMU device. So, we need to iterate
+ * through all registered IPMMUs performing required actions.
+ *
+ * Also take care of restoring special settings, such as translation
+ * table format, etc.
+ */
+static int __must_check ipmmu_suspend(void)
+{
+    struct ipmmu_vmsa_device *mmu;
+
+    if ( !iommu_enabled )
+        return 0;
+
+    printk(XENLOG_DEBUG "ipmmu: Suspending ...\n");
+
+    spin_lock(&ipmmu_devices_lock);
+
+    list_for_each_entry( mmu, &ipmmu_devices, list )
+    {
+        if ( ipmmu_is_root(mmu) )
+        {
+            unsigned int i;
+
+            for ( i = 0; i < mmu->num_ctx; i++ )
+            {
+                if ( !mmu->domains[i] )
+                    continue;
+                ipmmu_domain_backup_context(mmu->domains[i]);
+            }
+        }
+        else
+            ipmmu_utlbs_backup(mmu);
+    }
+
+    spin_unlock(&ipmmu_devices_lock);
+
+    return 0;
+}
+
+static void ipmmu_resume(void)
+{
+    struct ipmmu_vmsa_device *mmu;
+
+    if ( !iommu_enabled )
+        return;
+
+    printk(XENLOG_DEBUG "ipmmu: Resuming ...\n");
+
+    spin_lock(&ipmmu_devices_lock);
+
+    list_for_each_entry( mmu, &ipmmu_devices, list )
+    {
+        uint32_t reg;
+
+        /* Do not use security group function */
+        reg = IMSCTLR + mmu->features->control_offset_base;
+        ipmmu_write(mmu, reg, ipmmu_read(mmu, reg) & ~IMSCTLR_USE_SECGRP);
+
+        if ( ipmmu_is_root(mmu) )
+        {
+            unsigned int i;
+
+            /* Use stage 2 translation table format */
+            reg = IMSAUXCTLR + mmu->features->control_offset_base;
+            ipmmu_write(mmu, reg, ipmmu_read(mmu, reg) | IMSAUXCTLR_S2PTE);
+
+            for ( i = 0; i < mmu->num_ctx; i++ )
+            {
+                if ( !mmu->domains[i] )
+                    continue;
+                ipmmu_domain_restore_context(mmu->domains[i]);
+            }
+        }
+        else
+            ipmmu_utlbs_restore(mmu);
+    }
+
+    spin_unlock(&ipmmu_devices_lock);
+}
+
 static const struct iommu_ops ipmmu_iommu_ops =
 {
     .page_sizes      = PAGE_SIZE_4K,
@@ -1372,6 +1714,8 @@ static const struct iommu_ops ipmmu_iommu_ops =
     .unmap_page      = arm_iommu_unmap_page,
     .dt_xlate        = ipmmu_dt_xlate,
     .add_device      = ipmmu_add_device,
+    .suspend         = ipmmu_suspend,
+    .resume          = ipmmu_resume,
 };
 
 static __init int ipmmu_init(struct dt_device_node *node, const void *data)
